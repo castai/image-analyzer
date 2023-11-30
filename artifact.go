@@ -5,7 +5,7 @@
 // Adapted from https://github.com/aquasecurity/trivy/blob/main/pkg/fanal/artifact/image/image.go in order to remove some checks and fix race conditions
 // while scanning multiple images.
 
-package image_analyzer
+package analyzer
 
 import (
 	"context"
@@ -62,9 +62,9 @@ import (
 	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/os/release"
 	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/os/ubuntu"
 
-	_ "github.com/castai/image-analyzer/pkg/apk"
-	_ "github.com/castai/image-analyzer/pkg/dpkg"
-	_ "github.com/castai/image-analyzer/pkg/rpm"
+	_ "github.com/castai/image-analyzer/apk"
+	_ "github.com/castai/image-analyzer/dpkg"
+	_ "github.com/castai/image-analyzer/rpm"
 )
 
 const (

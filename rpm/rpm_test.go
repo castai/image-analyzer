@@ -5,9 +5,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseRpmInfo(t *testing.T) {

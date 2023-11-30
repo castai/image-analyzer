@@ -10,14 +10,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/castai/image-analyzer/pkg"
-	debVersion "github.com/knqyf263/go-deb-version"
-	"github.com/samber/lo"
-	"golang.org/x/xerrors"
-
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/log"
+	"github.com/castai/image-analyzer/pathutil"
+	debVersion "github.com/knqyf263/go-deb-version"
+	"github.com/samber/lo"
+	"golang.org/x/xerrors"
 )
 
 func init() {
@@ -53,15 +52,15 @@ func (a dpkgAnalyzer) Analyze(_ context.Context, input analyzer.AnalysisInput) (
 		}
 
 		binaries := lo.Filter(lo.Map(installedFiles, func(item string, index int) string {
-			return pkg.CleanPath(item)
-		}), pkg.BinariesPathFilter)
+			return pathutil.CleanPath(item)
+		}), pathutil.BinariesPathFilter)
 		if len(binaries) > 0 {
-			name, _ := pkg.Split(filename, '.')
-			pkgName, _ := pkg.Split(name, ':')
+			name, _ := pathutil.Split(filename, '.')
+			pkgName, _ := pathutil.Split(name, ':')
 
 			result.CustomResources = []types.CustomResource{
 				{
-					Type:     pkg.TypeInstalledBinaries,
+					Type:     pathutil.TypeInstalledBinaries,
 					FilePath: input.FilePath,
 					Data:     map[string][]string{pkgName: binaries},
 				},

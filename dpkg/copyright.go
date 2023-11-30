@@ -9,14 +9,13 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/samber/lo"
-	"golang.org/x/exp/slices"
-	"golang.org/x/xerrors"
-
 	dio "github.com/aquasecurity/go-dep-parser/pkg/io"
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/licensing"
+	"github.com/samber/lo"
+	"golang.org/x/exp/slices"
+	"golang.org/x/xerrors"
 )
 
 func init() {

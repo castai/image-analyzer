@@ -1,11 +1,10 @@
-package image_analyzer
+package image
 
 import (
 	"context"
 
+	"github.com/castai/image-analyzer/image/daemon"
 	"github.com/google/go-containerregistry/pkg/name"
-
-	"github.com/castai/image-analyzer/daemon"
 )
 
 func NewFromContainerdDaemon(ctx context.Context, imageName string) (ImageWithIndex, func(), error) {

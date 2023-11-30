@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/castai/image-analyzer/pkg"
+	"github.com/castai/image-analyzer/pathutil"
 	apkVersion "github.com/knqyf263/go-apk-version"
 	"github.com/samber/lo"
 	"golang.org/x/exp/slices"
@@ -40,8 +40,8 @@ func (a alpinePkgAnalyzer) Analyze(_ context.Context, input analyzer.AnalysisInp
 	for pkgName, files := range installedFiles {
 		systemInstalledFiles = append(systemInstalledFiles, files...)
 		binaries := lo.Filter(lo.Map(files, func(item string, index int) string {
-			return pkg.CleanPath(item)
-		}), pkg.BinariesPathFilter)
+			return pathutil.CleanPath(item)
+		}), pathutil.BinariesPathFilter)
 		if len(binaries) > 0 {
 			binariesMap[pkgName] = binaries
 		}
@@ -57,7 +57,7 @@ func (a alpinePkgAnalyzer) Analyze(_ context.Context, input analyzer.AnalysisInp
 		SystemInstalledFiles: systemInstalledFiles,
 		CustomResources: []types.CustomResource{
 			{
-				Type:     pkg.TypeInstalledBinaries,
+				Type:     pathutil.TypeInstalledBinaries,
 				FilePath: input.FilePath,
 				Data:     binariesMap,
 			},

@@ -9,16 +9,15 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/castai/image-analyzer/pkg"
-	rpmdb "github.com/knqyf263/go-rpmdb/pkg"
-	"github.com/samber/lo"
-	"golang.org/x/exp/slices"
-	"golang.org/x/xerrors"
-
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
 	"github.com/aquasecurity/trivy/pkg/fanal/log"
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/fanal/utils"
+	"github.com/castai/image-analyzer/pathutil"
+	rpmdb "github.com/knqyf263/go-rpmdb/pkg"
+	"github.com/samber/lo"
+	"golang.org/x/exp/slices"
+	"golang.org/x/xerrors"
 )
 
 func init() {
@@ -74,8 +73,8 @@ func (a rpmPkgAnalyzer) Analyze(_ context.Context, input analyzer.AnalysisInput)
 	for pkgName, files := range installedFiles {
 		systemInstalledFiles = append(systemInstalledFiles, files...)
 		binaries := lo.Filter(lo.Map(files, func(item string, index int) string {
-			return pkg.CleanPath(item)
-		}), pkg.BinariesPathFilter)
+			return pathutil.CleanPath(item)
+		}), pathutil.BinariesPathFilter)
 		if len(binaries) > 0 {
 			binaryMap[pkgName] = binaries
 		}
@@ -91,7 +90,7 @@ func (a rpmPkgAnalyzer) Analyze(_ context.Context, input analyzer.AnalysisInput)
 		SystemInstalledFiles: systemInstalledFiles,
 		CustomResources: []types.CustomResource{
 			{
-				Type:     pkg.TypeInstalledBinaries,
+				Type:     pathutil.TypeInstalledBinaries,
 				FilePath: input.FilePath,
 				Data:     binaryMap,
 			},

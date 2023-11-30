@@ -6,10 +6,9 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_dpkgAnalyzer_Analyze(t *testing.T) {

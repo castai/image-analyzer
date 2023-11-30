@@ -1,4 +1,4 @@
-package image_analyzer
+package image
 
 import (
 	"fmt"
