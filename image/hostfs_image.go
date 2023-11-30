@@ -1,11 +1,10 @@
-package analyzer
+package image
 
 import (
-	"github.com/castai/image-analyzer/image"
 	"github.com/castai/image-analyzer/image/hostfs"
 )
 
-func NewFromContainerdHostFS(imageID string, config hostfs.ContainerdHostFSConfig) (image.ImageWithIndex, func(), error) {
+func NewFromContainerdHostFS(imageID string, config hostfs.ContainerdHostFSConfig) (ImageWithIndex, func(), error) {
 	hash, err := hostfs.NewImageHash(imageID)
 	if err != nil {
 		return nil, nil, err
@@ -30,9 +29,9 @@ func (b extendedBlobImage) Name() string {
 }
 
 func (b extendedBlobImage) ID() (string, error) {
-	return image.ID(b)
+	return ID(b)
 }
 
 func (b extendedBlobImage) LayerIDs() ([]string, error) {
-	return image.LayerIDs(b)
+	return LayerIDs(b)
 }
