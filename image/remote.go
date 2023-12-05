@@ -45,6 +45,9 @@ type DockerOption struct {
 	// SSL/TLS
 	InsecureSkipTLSVerify bool `yaml:"insecure_skip_tls_verify"`
 	NonSSL                bool `yaml:"non_ssl"`
+
+	Architecture string `yaml:"architecture"`
+	OS           string `yaml:"os"`
 }
 
 func NewFromRemote(ctx context.Context, imageName string, option DockerOption) (ImageWithIndex, error) {
@@ -57,7 +60,25 @@ func NewFromRemote(ctx context.Context, imageName string, option DockerOption) (
 		return nil, fmt.Errorf("failed to parse the image name: %w", err)
 	}
 
-	img, err := tryRemote(ctx, imageName, ref, types.DockerOption{
+	img, err := tryRemote(ctx, imageName, ref, option)
+	if err != nil {
+		return nil, err
+	}
+	return img, nil
+}
+
+func tryRemote(ctx context.Context, imageName string, ref name.Reference, option DockerOption) (ImageWithIndex, error) {
+	var remoteOpts []remote.Option
+	if option.InsecureSkipTLSVerify {
+		t := &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		}
+		remoteOpts = append(remoteOpts, remote.WithTransport(t))
+	}
+	remoteOpts = append(remoteOpts, remote.WithContext(ctx))
+
+	domain := ref.Context().RegistryStr()
+	auth := token.GetToken(ctx, domain, types.DockerOption{
 		UserName:              option.UserName,
 		Password:              option.Password,
 		RegistryToken:         option.RegistryToken,
@@ -69,24 +90,6 @@ func NewFromRemote(ctx context.Context, imageName string, option DockerOption) (
 		InsecureSkipTLSVerify: option.InsecureSkipTLSVerify,
 		NonSSL:                option.NonSSL,
 	})
-	if err != nil {
-		return nil, err
-	}
-	return img, nil
-}
-
-func tryRemote(ctx context.Context, imageName string, ref name.Reference, option types.DockerOption) (ImageWithIndex, error) {
-	var remoteOpts []remote.Option
-	if option.InsecureSkipTLSVerify {
-		t := &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-		}
-		remoteOpts = append(remoteOpts, remote.WithTransport(t))
-	}
-	remoteOpts = append(remoteOpts, remote.WithContext(ctx))
-
-	domain := ref.Context().RegistryStr()
-	auth := token.GetToken(ctx, domain, option)
 
 	if auth.Username != "" && auth.Password != "" {
 		remoteOpts = append(remoteOpts, remote.WithAuth(&auth))
@@ -95,6 +98,12 @@ func tryRemote(ctx context.Context, imageName string, ref name.Reference, option
 		remoteOpts = append(remoteOpts, remote.WithAuth(&bearer))
 	} else {
 		remoteOpts = append(remoteOpts, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	}
+	if option.Architecture != "" && option.OS != "" {
+		remoteOpts = append(remoteOpts, remote.WithPlatform(v1.Platform{
+			Architecture: option.Architecture,
+			OS:           option.OS,
+		}))
 	}
 
 	desc, err := remote.Get(ref, remoteOpts...)
