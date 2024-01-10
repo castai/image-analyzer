@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/aquasecurity/trivy/pkg/fanal/image/token"
+	"github.com/aquasecurity/trivy/pkg/fanal/image/registry"
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -78,19 +78,21 @@ func tryRemote(ctx context.Context, imageName string, ref name.Reference, option
 	remoteOpts = append(remoteOpts, remote.WithContext(ctx))
 
 	domain := ref.Context().RegistryStr()
-	auth := token.GetToken(ctx, domain, types.DockerOption{
-		UserName:              option.UserName,
-		Password:              option.Password,
-		RegistryToken:         option.RegistryToken,
-		AwsAccessKey:          option.AwsAccessKey,
-		AwsSecretKey:          option.AwsSecretKey,
-		AwsSessionToken:       option.AwsSessionToken,
-		AwsRegion:             option.AwsRegion,
-		GcpCredPath:           option.GcpCredPath,
-		InsecureSkipTLSVerify: option.InsecureSkipTLSVerify,
-		NonSSL:                option.NonSSL,
+	auth := registry.GetToken(ctx, domain, types.RegistryOptions{
+		Credentials: []types.Credential{
+			{
+				Username: option.UserName,
+				Password: option.Password,
+			},
+		},
+		RegistryToken:   option.RegistryToken,
+		Insecure:        option.InsecureSkipTLSVerify,
+		AWSAccessKey:    option.AwsAccessKey,
+		AWSSecretKey:    option.AwsSecretKey,
+		AWSSessionToken: option.AwsSessionToken,
+		AWSRegion:       option.AwsRegion,
+		GCPCredPath:     option.GcpCredPath,
 	})
-
 	if auth.Username != "" && auth.Password != "" {
 		remoteOpts = append(remoteOpts, remote.WithAuth(&auth))
 	} else if option.RegistryToken != "" {
