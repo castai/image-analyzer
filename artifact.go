@@ -30,8 +30,8 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/buildinfo"
-	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/command/apk"
 	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/executable"
+	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/imgconf/apk"
 	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/language/c/conan"
 	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/language/dotnet/deps"
 	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/language/dotnet/nuget"
@@ -77,6 +77,7 @@ type Artifact struct {
 	cache          CacheClient
 	walker         walker.LayerTar
 	analyzer       analyzer.AnalyzerGroup
+	configAnalyzer analyzer.ConfigAnalyzerGroup
 	handlerManager handler.Manager
 
 	artifactOption artifact.Option
@@ -93,12 +94,23 @@ func NewArtifact(img types.Image, log logrus.FieldLogger, c CacheClient, opt art
 		return nil, fmt.Errorf("create analyzer group: %w", err)
 	}
 
+	ca, err := analyzer.NewConfigAnalyzerGroup(analyzer.ConfigAnalyzerOptions{
+		FilePatterns:         opt.FilePatterns,
+		DisabledAnalyzers:    opt.DisabledAnalyzers,
+		MisconfScannerOption: opt.MisconfScannerOption,
+		SecretScannerOption:  opt.SecretScannerOption,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create config analyzer group: %w", err)
+	}
+
 	return &Artifact{
 		log:            log,
 		image:          img,
 		cache:          c,
 		walker:         walker.NewLayerTar(opt.SkipFiles, opt.SkipDirs, opt.Slow),
 		analyzer:       a,
+		configAnalyzer: ca,
 		artifactOption: opt,
 	}, nil
 }
@@ -116,9 +128,18 @@ func (a Artifact) Inspect(ctx context.Context) (*ArtifactReference, error) {
 		return nil, fmt.Errorf("unable to get the image ID: %w", err)
 	}
 
-	diffIDs, err := a.image.LayerIDs()
+	layers, err := a.image.Layers()
 	if err != nil {
-		return nil, fmt.Errorf("unable to get layer IDs: %w", err)
+		return nil, fmt.Errorf("unable to get the image's layers: %w", err)
+	}
+
+	diffIDs := make([]string, len(layers))
+	for i, layer := range layers {
+		id, err := layer.DiffID()
+		if err != nil {
+			return nil, fmt.Errorf("unable to get the layer diff ID: %w", err)
+		}
+		diffIDs[i] = id.String()
 	}
 
 	configFile, err := a.image.ConfigFile()
@@ -271,8 +292,8 @@ func (a Artifact) inspect(ctx context.Context, missingImageKey string, layerKeys
 					a.log.Warnf("putting blob to cache: %v", err)
 				}
 
-				if layerInfo.OS != nil {
-					osFound = *layerInfo.OS
+				if layerInfo.OS != (types.OS{}) {
+					osFound = layerInfo.OS
 				}
 				blobInfo <- layerInfo
 			}(ctx, k)
@@ -400,25 +421,20 @@ func (a Artifact) isCompressed(l v1.Layer) bool {
 }
 
 func (a Artifact) inspectConfig(ctx context.Context, imageID string, osFound types.OS) (*types.ArtifactInfo, error) {
-	configBlob, err := a.image.RawConfigFile()
+	cfg, err := a.image.ConfigFile()
 	if err != nil {
 		return nil, fmt.Errorf("unable to get config blob: %w", err)
 	}
 
-	pkgs := a.analyzer.AnalyzeImageConfig(osFound, configBlob)
-
-	var s1 v1.ConfigFile
-	if err = json.Unmarshal(configBlob, &s1); err != nil {
-		return nil, fmt.Errorf("json marshal error: %w", err)
-	}
+	pkgs := a.configAnalyzer.AnalyzeImageConfig(ctx, osFound, cfg)
 
 	info := types.ArtifactInfo{
 		SchemaVersion:   types.ArtifactJSONSchemaVersion,
-		Architecture:    s1.Architecture,
-		Created:         s1.Created.Time,
-		DockerVersion:   s1.DockerVersion,
-		OS:              s1.OS,
-		HistoryPackages: pkgs,
+		Architecture:    cfg.Architecture,
+		Created:         cfg.Created.Time,
+		DockerVersion:   cfg.DockerVersion,
+		OS:              cfg.OS,
+		HistoryPackages: pkgs.HistoryPackages,
 	}
 
 	// Cache info.
