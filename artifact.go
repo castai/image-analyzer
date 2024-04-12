@@ -85,7 +85,7 @@ type Artifact struct {
 
 type ArtifactOption = artifact.Option
 
-func NewArtifact(img types.Image, log logrus.FieldLogger, c CacheClient, opt artifact.Option) (*Artifact, error) {
+func NewArtifact(img types.Image, log logrus.FieldLogger, c CacheClient, opt ArtifactOption) (*Artifact, error) {
 	a, err := analyzer.NewAnalyzerGroup(analyzer.AnalyzerOptions{
 		Group:             opt.AnalyzerGroup,
 		DisabledAnalyzers: opt.DisabledAnalyzers,
@@ -108,7 +108,7 @@ func NewArtifact(img types.Image, log logrus.FieldLogger, c CacheClient, opt art
 		log:            log,
 		image:          img,
 		cache:          c,
-		walker:         walker.NewLayerTar(opt.SkipFiles, opt.SkipDirs, opt.Slow),
+		walker:         walker.NewLayerTar(opt.SkipFiles, opt.SkipDirs),
 		analyzer:       a,
 		configAnalyzer: ca,
 		artifactOption: opt,
@@ -249,11 +249,7 @@ func (a Artifact) inspect(ctx context.Context, missingImageKey string, layerKeys
 	blobInfo := make(chan types.BlobInfo)
 
 	errCh := make(chan error)
-	limit := semaphore.NewWeighted(parallel)
-	if a.artifactOption.Slow {
-		// Inspect layers in series
-		limit = semaphore.NewWeighted(1)
-	}
+	limit := semaphore.NewWeighted(int64(a.artifactOption.Parallel))
 
 	var osFound types.OS
 
@@ -337,11 +333,7 @@ func (a Artifact) inspectLayer(ctx context.Context, diffID string, disabled []an
 	var wg sync.WaitGroup
 	opts := analyzer.AnalysisOptions{Offline: a.artifactOption.Offline}
 	result := analyzer.NewAnalysisResult()
-	limit := semaphore.NewWeighted(parallel)
-	if a.artifactOption.Slow {
-		// Inspect layers in series
-		limit = semaphore.NewWeighted(1)
-	}
+	limit := semaphore.NewWeighted(int64(a.artifactOption.Parallel))
 
 	// Walk a tar layer
 	opqDirs, whFiles, err := a.walker.Walk(r, func(filePath string, info os.FileInfo, opener analyzer.Opener) error {

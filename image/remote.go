@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/aquasecurity/trivy/pkg/fanal/image/token"
+	"github.com/aquasecurity/trivy/pkg/fanal/image/registry"
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
@@ -25,34 +25,9 @@ type RegistryAuth struct {
 	Token    string `json:"auth"`
 }
 
-type DockerOption struct {
-	// Auth
-	UserName string `yaml:"user_name"`
-	Password string `yaml:"password"`
-
-	// RegistryToken is a bearer token to be sent to a registry
-	RegistryToken string `yaml:"registry_token"`
-
-	// ECR
-	AwsAccessKey    string `yaml:"aws_access_key"`
-	AwsSecretKey    string `yaml:"aws_secret_key"`
-	AwsSessionToken string `yaml:"aws_session_token"`
-	AwsRegion       string `yaml:"aws_region"`
-
-	// GCP
-	GcpCredPath string `yaml:"gcp_cred_path"`
-
-	// SSL/TLS
-	InsecureSkipTLSVerify bool `yaml:"insecure_skip_tls_verify"`
-	NonSSL                bool `yaml:"non_ssl"`
-
-	Architecture string `yaml:"architecture"`
-	OS           string `yaml:"os"`
-}
-
-func NewFromRemote(ctx context.Context, imageName string, option DockerOption) (ImageWithIndex, error) {
+func NewFromRemote(ctx context.Context, imageName string, option types.ImageOptions) (ImageWithIndex, error) {
 	var nameOpts []name.Option
-	if option.NonSSL {
+	if option.RegistryOptions.Insecure {
 		nameOpts = append(nameOpts, name.Insecure)
 	}
 	ref, err := name.ParseReference(imageName, nameOpts...)
@@ -67,9 +42,9 @@ func NewFromRemote(ctx context.Context, imageName string, option DockerOption) (
 	return img, nil
 }
 
-func tryRemote(ctx context.Context, imageName string, ref name.Reference, option DockerOption) (ImageWithIndex, error) {
+func tryRemote(ctx context.Context, imageName string, ref name.Reference, option types.ImageOptions) (ImageWithIndex, error) {
 	var remoteOpts []remote.Option
-	if option.InsecureSkipTLSVerify {
+	if option.RegistryOptions.Insecure {
 		t := &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		}
@@ -78,32 +53,18 @@ func tryRemote(ctx context.Context, imageName string, ref name.Reference, option
 	remoteOpts = append(remoteOpts, remote.WithContext(ctx))
 
 	domain := ref.Context().RegistryStr()
-	auth := token.GetToken(ctx, domain, types.DockerOption{
-		UserName:              option.UserName,
-		Password:              option.Password,
-		RegistryToken:         option.RegistryToken,
-		AwsAccessKey:          option.AwsAccessKey,
-		AwsSecretKey:          option.AwsSecretKey,
-		AwsSessionToken:       option.AwsSessionToken,
-		AwsRegion:             option.AwsRegion,
-		GcpCredPath:           option.GcpCredPath,
-		InsecureSkipTLSVerify: option.InsecureSkipTLSVerify,
-		NonSSL:                option.NonSSL,
-	})
-
+	auth := registry.GetToken(ctx, domain, option.RegistryOptions)
 	if auth.Username != "" && auth.Password != "" {
 		remoteOpts = append(remoteOpts, remote.WithAuth(&auth))
-	} else if option.RegistryToken != "" {
-		bearer := authn.Bearer{Token: option.RegistryToken}
+	} else if option.RegistryOptions.RegistryToken != "" {
+		bearer := authn.Bearer{Token: option.RegistryOptions.RegistryToken}
 		remoteOpts = append(remoteOpts, remote.WithAuth(&bearer))
 	} else {
 		remoteOpts = append(remoteOpts, remote.WithAuthFromKeychain(authn.DefaultKeychain))
 	}
-	if option.Architecture != "" && option.OS != "" {
-		remoteOpts = append(remoteOpts, remote.WithPlatform(v1.Platform{
-			Architecture: option.Architecture,
-			OS:           option.OS,
-		}))
+
+	if platform := option.RegistryOptions.Platform.Platform; platform != nil {
+		remoteOpts = append(remoteOpts, remote.WithPlatform(*platform))
 	}
 
 	desc, err := remote.Get(ref, remoteOpts...)

@@ -31,7 +31,8 @@ var (
 
 // dpkgLicenseAnalyzer parses copyright files and detect licenses
 type dpkgLicenseAnalyzer struct {
-	licenseFull bool
+	licenseFull               bool
+	classifierConfidenceLevel float64
 }
 
 // Analyze parses /usr/share/doc/*/copyright files
@@ -45,7 +46,7 @@ func (a *dpkgLicenseAnalyzer) Analyze(_ context.Context, input analyzer.Analysis
 			return nil, xerrors.Errorf("seek error: %w", err)
 		}
 
-		licenseFile, err := licensing.Classify(input.FilePath, input.Content)
+		licenseFile, err := licensing.Classify(input.FilePath, input.Content, a.classifierConfidenceLevel)
 		if err != nil {
 			return nil, xerrors.Errorf("license classification error: %w", err)
 		}
@@ -117,6 +118,7 @@ func (a *dpkgLicenseAnalyzer) parseCopyright(r dio.ReadSeekerAt) []types.License
 
 func (a *dpkgLicenseAnalyzer) Init(opt analyzer.AnalyzerOptions) error {
 	a.licenseFull = opt.LicenseScannerOption.Full
+	a.classifierConfidenceLevel = opt.LicenseScannerOption.ClassifierConfidenceLevel
 	return nil
 }
 
