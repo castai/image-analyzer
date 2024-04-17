@@ -13,14 +13,17 @@ import (
 	"github.com/aquasecurity/trivy/pkg/fanal/log"
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/fanal/utils"
-	"github.com/castai/image-analyzer/pathutil"
 	rpmdb "github.com/knqyf263/go-rpmdb/pkg"
 	"github.com/samber/lo"
 	"golang.org/x/exp/slices"
 	"golang.org/x/xerrors"
+
+	"github.com/castai/image-analyzer/pathutil"
 )
 
+// https://github.com/aquasecurity/trivy/blob/v0.50.1/pkg/fanal/analyzer/all/import.go
 func init() {
+	analyzer.DeregisterAnalyzer(analyzer.TypeRpm) // prevents registering analyzer twice
 	analyzer.RegisterAnalyzer(&rpmPkgAnalyzer{})
 }
 

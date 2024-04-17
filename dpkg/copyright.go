@@ -18,7 +18,9 @@ import (
 	"golang.org/x/xerrors"
 )
 
+// https://github.com/aquasecurity/trivy/blob/v0.50.1/pkg/fanal/analyzer/all/import.go
 func init() {
+	analyzer.DeregisterAnalyzer(analyzer.TypeDpkgLicense) // prevents registering analyzer twice
 	analyzer.RegisterAnalyzer(&dpkgLicenseAnalyzer{})
 }
 
