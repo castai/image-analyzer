@@ -9,18 +9,20 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/castai/image-analyzer/pathutil"
-	apkVersion "github.com/knqyf263/go-apk-version"
-	"github.com/samber/lo"
-	"golang.org/x/exp/slices"
-
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/licensing"
 	"github.com/aquasecurity/trivy/pkg/log"
+	apkVersion "github.com/knqyf263/go-apk-version"
+	"github.com/samber/lo"
+	"golang.org/x/exp/slices"
+
+	"github.com/castai/image-analyzer/pathutil"
 )
 
+// https://github.com/aquasecurity/trivy/blob/v0.50.1/pkg/fanal/analyzer/all/import.go
 func init() {
+	analyzer.DeregisterAnalyzer(analyzer.TypeApk) // prevents registering analyzer twice
 	analyzer.RegisterAnalyzer(&alpinePkgAnalyzer{})
 }
 
