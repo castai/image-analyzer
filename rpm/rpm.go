@@ -114,6 +114,7 @@ func (a rpmPkgAnalyzer) parsePkgInfo(rc io.Reader) ([]types.Package, map[string]
 	if err != nil {
 		return nil, nil, xerrors.Errorf("failed to open RPM DB: %w", err)
 	}
+	defer db.Close()
 
 	// equivalent:
 	//   new version: rpm -qa --qf "%{NAME} %{EPOCHNUM} %{VERSION} %{RELEASE} %{SOURCERPM} %{ARCH}\n"
