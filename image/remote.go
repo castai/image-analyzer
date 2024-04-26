@@ -42,6 +42,23 @@ func NewFromRemote(ctx context.Context, imageName string, option types.ImageOpti
 	return img, nil
 }
 
+func getToken(ctx context.Context, domain string, opt types.RegistryOptions) (auth authn.Basic) {
+	// if the registry is Azure AND the user configured a pull secret with username and password
+	// just return them as basic auth and don't user trivy's GetToken function
+	// which does not honor the provided username and password and tries to authenticate with the registry
+	// via workload identity
+	if strings.HasSuffix(domain, "azurecr.io") {
+		if len(opt.Credentials) > 0 {
+			return authn.Basic{
+				Username: opt.Credentials[0].Username,
+				Password: opt.Credentials[0].Password,
+			}
+		}
+	}
+
+	return registry.GetToken(ctx, domain, opt)
+}
+
 func tryRemote(ctx context.Context, imageName string, ref name.Reference, option types.ImageOptions) (ImageWithIndex, error) {
 	var remoteOpts []remote.Option
 	if option.RegistryOptions.Insecure {
@@ -53,7 +70,7 @@ func tryRemote(ctx context.Context, imageName string, ref name.Reference, option
 	remoteOpts = append(remoteOpts, remote.WithContext(ctx))
 
 	domain := ref.Context().RegistryStr()
-	auth := registry.GetToken(ctx, domain, option.RegistryOptions)
+	auth := getToken(ctx, domain, option.RegistryOptions)
 	if auth.Username != "" && auth.Password != "" {
 		remoteOpts = append(remoteOpts, remote.WithAuth(&auth))
 	} else if option.RegistryOptions.RegistryToken != "" {
