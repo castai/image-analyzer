@@ -43,14 +43,23 @@ func NewFromRemote(ctx context.Context, imageName string, option types.ImageOpti
 }
 
 func tryRemote(ctx context.Context, imageName string, ref name.Reference, option types.ImageOptions) (ImageWithIndex, error) {
-	var remoteOpts []remote.Option
+	remoteOpts := []remote.Option{
+		remote.WithContext(ctx),
+	}
 	if option.RegistryOptions.Insecure {
 		t := &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		}
 		remoteOpts = append(remoteOpts, remote.WithTransport(t))
 	}
-	remoteOpts = append(remoteOpts, remote.WithContext(ctx))
+
+	// Username/Password based auth.
+	for _, cred := range option.RegistryOptions.Credentials {
+		remoteOpts = append(remoteOpts, remote.WithAuth(&authn.Basic{
+			Username: cred.Username,
+			Password: cred.Password,
+		}))
+	}
 
 	domain := ref.Context().RegistryStr()
 	auth := registry.GetToken(ctx, domain, option.RegistryOptions)
