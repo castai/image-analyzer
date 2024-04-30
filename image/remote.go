@@ -54,22 +54,22 @@ func tryRemote(ctx context.Context, imageName string, ref name.Reference, option
 	}
 
 	// Username/Password based auth.
-	for _, cred := range option.RegistryOptions.Credentials {
-		remoteOpts = append(remoteOpts, remote.WithAuth(&authn.Basic{
-			Username: cred.Username,
-			Password: cred.Password,
-		}))
-	}
-
-	domain := ref.Context().RegistryStr()
-	auth := registry.GetToken(ctx, domain, option.RegistryOptions)
-	if auth.Username != "" && auth.Password != "" {
-		remoteOpts = append(remoteOpts, remote.WithAuth(&auth))
-	} else if option.RegistryOptions.RegistryToken != "" {
-		bearer := authn.Bearer{Token: option.RegistryOptions.RegistryToken}
-		remoteOpts = append(remoteOpts, remote.WithAuth(&bearer))
+	if len(option.RegistryOptions.Credentials) > 0 {
+		for _, cred := range option.RegistryOptions.Credentials {
+			remoteOpts = append(remoteOpts, remote.WithAuth(&authn.Basic{
+				Username: cred.Username,
+				Password: cred.Password,
+			}))
+		}
 	} else {
-		remoteOpts = append(remoteOpts, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+		domain := ref.Context().RegistryStr()
+		auth := registry.GetToken(ctx, domain, option.RegistryOptions)
+		if auth.Username != "" && auth.Password != "" {
+			remoteOpts = append(remoteOpts, remote.WithAuth(&auth))
+		} else if option.RegistryOptions.RegistryToken != "" {
+			bearer := authn.Bearer{Token: option.RegistryOptions.RegistryToken}
+			remoteOpts = append(remoteOpts, remote.WithAuth(&bearer))
+		}
 	}
 
 	if platform := option.RegistryOptions.Platform.Platform; platform != nil {
