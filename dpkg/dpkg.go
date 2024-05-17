@@ -38,7 +38,7 @@ var (
 
 type dpkgAnalyzer struct{}
 
-func (a dpkgAnalyzer) Analyze(_ context.Context, input analyzer.AnalysisInput) (*analyzer.AnalysisResult, error) {
+func (a dpkgAnalyzer) Analyze(ctx context.Context, input analyzer.AnalysisInput) (*analyzer.AnalysisResult, error) {
 	scanner := bufio.NewScanner(input.Content)
 	path, filename := filepath.Split(input.FilePath)
 	if a.isListFile(path, filename) {
@@ -70,7 +70,7 @@ func (a dpkgAnalyzer) Analyze(_ context.Context, input analyzer.AnalysisInput) (
 		return result, nil
 	}
 
-	return a.parseDpkgStatus(input.FilePath, scanner)
+	return a.parseDpkgStatus(ctx, input.FilePath, scanner)
 }
 
 func (a dpkgAnalyzer) parseDpkgInfoList(scanner *bufio.Scanner) ([]string, error) {
@@ -105,7 +105,7 @@ func (a dpkgAnalyzer) parseDpkgInfoList(scanner *bufio.Scanner) ([]string, error
 }
 
 // parseDpkgStatus parses /var/lib/dpkg/status or /var/lib/dpkg/status/*
-func (a dpkgAnalyzer) parseDpkgStatus(filePath string, scanner *bufio.Scanner) (*analyzer.AnalysisResult, error) {
+func (a dpkgAnalyzer) parseDpkgStatus(ctx context.Context, filePath string, scanner *bufio.Scanner) (*analyzer.AnalysisResult, error) {
 	var pkg *types.Package
 	pkgs := map[string]*types.Package{}
 	pkgIDs := map[string]string{}
@@ -116,7 +116,7 @@ func (a dpkgAnalyzer) parseDpkgStatus(filePath string, scanner *bufio.Scanner) (
 			continue
 		}
 
-		pkg = a.parseDpkgPkg(scanner)
+		pkg = a.parseDpkgPkg(ctx, scanner)
 		if pkg != nil {
 			pkgs[pkg.ID] = pkg
 			pkgIDs[pkg.Name] = pkg.ID
@@ -141,7 +141,7 @@ func (a dpkgAnalyzer) parseDpkgStatus(filePath string, scanner *bufio.Scanner) (
 	}, nil
 }
 
-func (a dpkgAnalyzer) parseDpkgPkg(scanner *bufio.Scanner) (pkg *types.Package) {
+func (a dpkgAnalyzer) parseDpkgPkg(ctx context.Context, scanner *bufio.Scanner) (pkg *types.Package) {
 	var (
 		name          string
 		version       string
@@ -192,7 +192,7 @@ func (a dpkgAnalyzer) parseDpkgPkg(scanner *bufio.Scanner) (pkg *types.Package) 
 	if name == "" || version == "" || !isInstalled {
 		return nil
 	} else if !debVersion.Valid(version) {
-		log.Logger.Warnf("Invalid Version Found : OS %s, Package %s, Version %s", "debian", name, version)
+		log.WarnContext(ctx, "Invalid Version Found : OS %s, Package %s, Version %s", "debian", name, version)
 		return nil
 	}
 	pkg = &types.Package{
@@ -218,7 +218,7 @@ func (a dpkgAnalyzer) parseDpkgPkg(scanner *bufio.Scanner) (pkg *types.Package) 
 	}
 
 	if !debVersion.Valid(sourceVersion) {
-		log.Logger.Warnf("Invalid Version Found : OS %s, Package %s, Version %s", "debian", sourceName, sourceVersion)
+		log.WarnContext(ctx, "Invalid Version Found : OS %s, Package %s, Version %s", "debian", sourceName, sourceVersion)
 		return pkg
 	}
 	pkg.SrcName = sourceName

@@ -10,7 +10,8 @@ import (
 	"strings"
 
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
-	"github.com/aquasecurity/trivy/pkg/fanal/log"
+	"github.com/aquasecurity/trivy/pkg/log"
+
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/fanal/utils"
 	rpmdb "github.com/knqyf263/go-rpmdb/pkg"
@@ -64,8 +65,8 @@ var osVendors = []string{
 
 type rpmPkgAnalyzer struct{}
 
-func (a rpmPkgAnalyzer) Analyze(_ context.Context, input analyzer.AnalysisInput) (*analyzer.AnalysisResult, error) {
-	parsedPkgs, installedFiles, err := a.parsePkgInfo(input.Content)
+func (a rpmPkgAnalyzer) Analyze(ctx context.Context, input analyzer.AnalysisInput) (*analyzer.AnalysisResult, error) {
+	parsedPkgs, installedFiles, err := a.parsePkgInfo(ctx, input.Content)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse rpmdb: %w", err)
 	}
@@ -101,7 +102,7 @@ func (a rpmPkgAnalyzer) Analyze(_ context.Context, input analyzer.AnalysisInput)
 	}, nil
 }
 
-func (a rpmPkgAnalyzer) parsePkgInfo(rc io.Reader) ([]types.Package, map[string][]string, error) {
+func (a rpmPkgAnalyzer) parsePkgInfo(ctx context.Context, rc io.Reader) ([]types.Package, map[string][]string, error) {
 	filePath, err := writeToTempFile(rc)
 	if err != nil {
 		return nil, nil, xerrors.Errorf("temp file error: %w", err)
@@ -138,7 +139,7 @@ func (a rpmPkgAnalyzer) parsePkgInfo(rc io.Reader) ([]types.Package, map[string]
 			// source epoch is not included in SOURCERPM
 			srcName, srcVer, srcRel, err = splitFileName(pkg.SourceRpm)
 			if err != nil {
-				log.Logger.Debugf("Invalid Source RPM Found: %s", pkg.SourceRpm)
+				log.DebugContext(ctx, "Invalid Source RPM Found: %s", pkg.SourceRpm)
 			}
 		}
 

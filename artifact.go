@@ -74,10 +74,13 @@ func NewArtifact(img types.Image, log logrus.FieldLogger, c CacheClient, opt Art
 	}
 
 	return &Artifact{
-		log:            log,
-		image:          img,
-		cache:          c,
-		walker:         walker.NewLayerTar(opt.SkipFiles, opt.SkipDirs),
+		log:   log,
+		image: img,
+		cache: c,
+		walker: walker.NewLayerTar(walker.Option{
+			SkipFiles: opt.WalkerOption.SkipFiles,
+			SkipDirs:  opt.WalkerOption.SkipDirs,
+		}),
 		analyzer:       a,
 		configAnalyzer: ca,
 		artifactOption: opt,

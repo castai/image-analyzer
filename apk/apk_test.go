@@ -2,6 +2,7 @@ package apk
 
 import (
 	"bufio"
+	"context"
 	"os"
 	"testing"
 
@@ -283,7 +284,7 @@ func TestParseApkInfo(t *testing.T) {
 			t.Errorf("%s : can't open file %s", testname, v.path)
 		}
 		scanner := bufio.NewScanner(read)
-		gotPkgs, gotFiles := a.parseApkInfo(scanner)
+		gotPkgs, gotFiles := a.parseApkInfo(context.Background(), scanner)
 
 		r := require.New(t)
 		r.Equal(v.wantPkgs, gotPkgs)
