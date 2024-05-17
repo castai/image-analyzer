@@ -10,7 +10,8 @@ import (
 	"strings"
 
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
-	"github.com/aquasecurity/trivy/pkg/fanal/log"
+	"github.com/aquasecurity/trivy/pkg/log"
+
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/fanal/utils"
 	rpmdb "github.com/knqyf263/go-rpmdb/pkg"
