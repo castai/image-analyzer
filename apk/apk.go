@@ -32,9 +32,9 @@ var requiredFiles = []string{"lib/apk/db/installed"}
 
 type alpinePkgAnalyzer struct{}
 
-func (a alpinePkgAnalyzer) Analyze(_ context.Context, input analyzer.AnalysisInput) (*analyzer.AnalysisResult, error) {
+func (a alpinePkgAnalyzer) Analyze(ctx context.Context, input analyzer.AnalysisInput) (*analyzer.AnalysisResult, error) {
 	scanner := bufio.NewScanner(input.Content)
-	parsedPkgs, installedFiles := a.parseApkInfo(scanner)
+	parsedPkgs, installedFiles := a.parseApkInfo(ctx, scanner)
 
 	binariesMap := make(map[string][]string)
 
@@ -67,7 +67,7 @@ func (a alpinePkgAnalyzer) Analyze(_ context.Context, input analyzer.AnalysisInp
 	}, nil
 }
 
-func (a alpinePkgAnalyzer) parseApkInfo(scanner *bufio.Scanner) ([]types.Package, map[string][]string) {
+func (a alpinePkgAnalyzer) parseApkInfo(ctx context.Context, scanner *bufio.Scanner) ([]types.Package, map[string][]string) {
 	var (
 		pkgs           []types.Package
 		pkg            types.Package
@@ -96,7 +96,7 @@ func (a alpinePkgAnalyzer) parseApkInfo(scanner *bufio.Scanner) ([]types.Package
 		case "V:":
 			version = line[2:]
 			if !apkVersion.Valid(version) {
-				log.Logger.Warnf("Invalid Version Found : OS %s, Package %s, Version %s", "alpine", pkg.Name, version)
+				log.WarnContext(ctx, "Invalid Version Found : OS %s, Package %s, Version %s", "alpine", pkg.Name, version)
 				continue
 			}
 			pkg.Version = version

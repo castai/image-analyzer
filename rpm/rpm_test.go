@@ -1,6 +1,7 @@
 package rpm
 
 import (
+	"context"
 	"os"
 	"sort"
 	"testing"
@@ -584,7 +585,7 @@ func TestParseRpmInfo(t *testing.T) {
 			r.NoError(err)
 			defer f.Close()
 
-			got, _, err := a.parsePkgInfo(f)
+			got, _, err := a.parsePkgInfo(context.Background(), f)
 			r.NoError(err)
 
 			sort.Slice(tc.pkgs, func(i, j int) bool {
