@@ -86,10 +86,16 @@ func tryRemote(ctx context.Context, imageName string, ref name.Reference, option
 		return nil, err
 	}
 
+	index, err := desc.ImageIndex()
+	if err != nil {
+		return nil, err
+	}
+
 	// Return v1.Image if the image is found in Docker Registry
 	return remoteImage{
 		name:       imageName,
 		Image:      img,
+		imageIndex: index,
 		ref:        implicitReference{ref: ref},
 		descriptor: desc,
 	}, nil
@@ -99,7 +105,9 @@ type remoteImage struct {
 	name       string
 	ref        implicitReference
 	descriptor *remote.Descriptor
+
 	v1.Image
+	imageIndex v1.ImageIndex
 }
 
 func (img remoteImage) Name() string {
@@ -128,7 +136,7 @@ func (img remoteImage) RepoDigests() []string {
 }
 
 func (img remoteImage) Index() *v1.IndexManifest {
-	return nil
+	return img.Index()
 }
 
 type implicitReference struct {
