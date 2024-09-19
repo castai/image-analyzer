@@ -18,7 +18,7 @@ func TestArtifact(t *testing.T) {
 	log.SetLevel(logrus.DebugLevel)
 
 	digest := "alpine@sha256:60eda2a7bc29a54fe6beae0d72312ea995eb3b8387535e8dbf6767fd1b765d34" // linux/amd64 digest
-	img, err := image.NewFromRemote(ctx, digest, types.ImageOptions{})
+	img, err := image.NewFromRemote(ctx, log, digest, types.ImageOptions{})
 	r.NoError(err)
 
 	artifact, err := NewArtifact(img, log, mockBlockCache{}, ArtifactOption{
