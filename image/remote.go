@@ -13,6 +13,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/sirupsen/logrus"
 )
 
 type DockerConfig struct {
@@ -25,7 +26,12 @@ type RegistryAuth struct {
 	Token    string `json:"auth"`
 }
 
-func NewFromRemote(ctx context.Context, imageName string, option types.ImageOptions) (ImageWithIndex, error) {
+func NewFromRemote(
+	ctx context.Context,
+	log logrus.FieldLogger,
+	imageName string,
+	option types.ImageOptions,
+) (ImageWithIndex, error) {
 	var nameOpts []name.Option
 	if option.RegistryOptions.Insecure {
 		nameOpts = append(nameOpts, name.Insecure)
@@ -35,14 +41,20 @@ func NewFromRemote(ctx context.Context, imageName string, option types.ImageOpti
 		return nil, fmt.Errorf("failed to parse the image name: %w", err)
 	}
 
-	img, err := tryRemote(ctx, imageName, ref, option)
+	img, err := tryRemote(ctx, log, imageName, ref, option)
 	if err != nil {
 		return nil, err
 	}
 	return img, nil
 }
 
-func tryRemote(ctx context.Context, imageName string, ref name.Reference, option types.ImageOptions) (ImageWithIndex, error) {
+func tryRemote(
+	ctx context.Context,
+	log logrus.FieldLogger,
+	imageName string,
+	ref name.Reference,
+	option types.ImageOptions,
+) (ImageWithIndex, error) {
 	remoteOpts := []remote.Option{
 		remote.WithContext(ctx),
 	}
@@ -55,6 +67,7 @@ func tryRemote(ctx context.Context, imageName string, ref name.Reference, option
 
 	// Username/Password based auth.
 	if len(option.RegistryOptions.Credentials) > 0 {
+		log.Info("using basic authentication to pull an image")
 		for _, cred := range option.RegistryOptions.Credentials {
 			remoteOpts = append(remoteOpts, remote.WithAuth(&authn.Basic{
 				Username: cred.Username,
@@ -62,13 +75,18 @@ func tryRemote(ctx context.Context, imageName string, ref name.Reference, option
 			}))
 		}
 	} else {
+		log.Info("using other authentication to pull an image")
 		domain := ref.Context().RegistryStr()
 		auth := registry.GetToken(ctx, domain, option.RegistryOptions)
 		if auth.Username != "" && auth.Password != "" {
+			log.Info("using cloud provider registry token to pull an image")
 			remoteOpts = append(remoteOpts, remote.WithAuth(&auth))
 		} else if option.RegistryOptions.RegistryToken != "" {
+			log.Info("using bearer token to pull an image")
 			bearer := authn.Bearer{Token: option.RegistryOptions.RegistryToken}
 			remoteOpts = append(remoteOpts, remote.WithAuth(&bearer))
+		} else {
+			log.Info("not using authentication to pull an image after all")
 		}
 	}
 
