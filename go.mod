@@ -5,7 +5,7 @@ go 1.22.0
 toolchain go1.22.3
 
 require (
-	github.com/aquasecurity/go-dep-parser v0.0.0-20240202105001-4f19ab402b0b
+	github.com/aquasecurity/go-dep-parser v0.0.0-20240606050805-1de9a375c629
 	github.com/aquasecurity/trivy v0.51.2
 	github.com/containerd/containerd v1.7.16
 	github.com/docker/docker v26.0.2+incompatible
