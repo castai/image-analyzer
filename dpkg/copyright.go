@@ -14,7 +14,7 @@ import (
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/licensing"
 	"github.com/samber/lo"
-	"golang.org/x/exp/slices"
+	"slices"
 	"golang.org/x/xerrors"
 )
 

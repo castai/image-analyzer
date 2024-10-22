@@ -16,7 +16,7 @@ import (
 	"github.com/aquasecurity/trivy/pkg/fanal/utils"
 	rpmdb "github.com/knqyf263/go-rpmdb/pkg"
 	"github.com/samber/lo"
-	"golang.org/x/exp/slices"
+	"slices"
 	"golang.org/x/xerrors"
 
 	"github.com/castai/image-analyzer/pathutil"
