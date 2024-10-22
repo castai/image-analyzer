@@ -26,7 +26,7 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/exp/slices"
+	"slices"
 	"golang.org/x/sync/semaphore"
 
 	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/all"

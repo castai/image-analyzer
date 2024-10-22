@@ -29,7 +29,6 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/samber/lo"
-	"golang.org/x/xerrors"
 )
 
 const (
@@ -40,7 +39,7 @@ const (
 func imageWriter(client *containerd.Client, img containerd.Image) imageSave {
 	return func(ctx context.Context, ref []string) (io.ReadCloser, error) {
 		if len(ref) < 1 {
-			return nil, xerrors.New("no image reference")
+			return nil, errors.New("no image reference")
 		}
 		imgOpts := archive.WithImage(client.ImageService(), ref[0])
 		manifestOpts := archive.WithManifest(img.Target())

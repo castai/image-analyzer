@@ -15,7 +15,7 @@ import (
 	"github.com/aquasecurity/trivy/pkg/log"
 	apkVersion "github.com/knqyf263/go-apk-version"
 	"github.com/samber/lo"
-	"golang.org/x/exp/slices"
+	"slices"
 
 	"github.com/castai/image-analyzer/pathutil"
 )
