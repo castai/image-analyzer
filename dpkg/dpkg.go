@@ -16,7 +16,6 @@ import (
 	"github.com/castai/image-analyzer/pathutil"
 	debVersion "github.com/knqyf263/go-deb-version"
 	"github.com/samber/lo"
-	"golang.org/x/xerrors"
 )
 
 func init() {
@@ -98,7 +97,7 @@ func (a dpkgAnalyzer) parseDpkgInfoList(scanner *bufio.Scanner) ([]string, error
 	installedFiles = append(installedFiles, previous)
 
 	if err := scanner.Err(); err != nil {
-		return nil, xerrors.Errorf("scan error: %w", err)
+		return nil, fmt.Errorf("scan error: %w", err)
 	}
 
 	return installedFiles, nil
@@ -124,7 +123,7 @@ func (a dpkgAnalyzer) parseDpkgStatus(ctx context.Context, filePath string, scan
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, xerrors.Errorf("scan error: %w", err)
+		return nil, fmt.Errorf("scan error: %w", err)
 	}
 
 	a.consolidateDependencies(pkgs, pkgIDs)

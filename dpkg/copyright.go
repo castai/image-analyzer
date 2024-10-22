@@ -3,19 +3,20 @@ package dpkg
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"slices"
+
 	dio "github.com/aquasecurity/go-dep-parser/pkg/io"
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/aquasecurity/trivy/pkg/licensing"
 	"github.com/samber/lo"
-	"slices"
-	"golang.org/x/xerrors"
 )
 
 // https://github.com/aquasecurity/trivy/blob/v0.50.1/pkg/fanal/analyzer/all/import.go
@@ -45,12 +46,12 @@ func (a *dpkgLicenseAnalyzer) Analyze(_ context.Context, input analyzer.Analysis
 	if len(findings) == 0 && a.licenseFull {
 		// Rewind the reader to the beginning of the stream after saving
 		if _, err := input.Content.Seek(0, io.SeekStart); err != nil {
-			return nil, xerrors.Errorf("seek error: %w", err)
+			return nil, fmt.Errorf("seek error: %w", err)
 		}
 
 		licenseFile, err := licensing.Classify(input.FilePath, input.Content, a.classifierConfidenceLevel)
 		if err != nil {
-			return nil, xerrors.Errorf("license classification error: %w", err)
+			return nil, fmt.Errorf("license classification error: %w", err)
 		}
 		findings = licenseFile.Findings
 	}
