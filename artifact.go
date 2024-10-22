@@ -199,7 +199,7 @@ func (a Artifact) getCachedLayers(ctx context.Context, ids []string) (map[string
 	return blobs, nil
 }
 
-func (Artifact) Clean(_ types.ArtifactReference) error {
+func (Artifact) Clean(_ artifact.Reference) error {
 	return nil
 }
 

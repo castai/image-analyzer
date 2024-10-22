@@ -34,7 +34,7 @@ func TestParseApkInfo(t *testing.T) {
 					Version:    "1.24.2-r9",
 					SrcName:    "busybox",
 					SrcVersion: "1.24.2-r9",
-					Licenses:   []string{"GPL-2.0"},
+					Licenses:   []string{"GPL-2.0-only"},
 					DependsOn:  []string{"musl@1.1.14-r10"},
 				},
 				{
@@ -43,7 +43,7 @@ func TestParseApkInfo(t *testing.T) {
 					Version:    "3.0.3-r0",
 					SrcName:    "alpine-baselayout",
 					SrcVersion: "3.0.3-r0",
-					Licenses:   []string{"GPL-2.0"},
+					Licenses:   []string{"GPL-2.0-only"},
 					DependsOn:  []string{"busybox@1.24.2-r9", "musl@1.1.14-r10"},
 				},
 				{
@@ -52,7 +52,7 @@ func TestParseApkInfo(t *testing.T) {
 					Version:    "1.1-r0",
 					SrcName:    "alpine-keys",
 					SrcVersion: "1.1-r0",
-					Licenses:   []string{"GPL-3.0"},
+					Licenses:   []string{"GPL-2.0-or-later"},
 				},
 				{
 					ID:         "zlib@1.2.8-r2",
@@ -69,7 +69,7 @@ func TestParseApkInfo(t *testing.T) {
 					Version:    "1.0.2h-r1",
 					SrcName:    "openssl",
 					SrcVersion: "1.0.2h-r1",
-					Licenses:   []string{"openssl"},
+					Licenses:   []string{"OpenSSL"},
 					DependsOn:  []string{"musl@1.1.14-r10", "zlib@1.2.8-r2"},
 				},
 				{
@@ -78,7 +78,7 @@ func TestParseApkInfo(t *testing.T) {
 					Version:    "1.0.2h-r1",
 					SrcName:    "openssl",
 					SrcVersion: "1.0.2h-r1",
-					Licenses:   []string{"openssl"},
+					Licenses:   []string{"OpenSSL"},
 					DependsOn: []string{
 						"libcrypto1.0@1.0.2h-r1",
 						"musl@1.1.14-r10",
@@ -90,7 +90,7 @@ func TestParseApkInfo(t *testing.T) {
 					Version:    "2.6.7-r0",
 					SrcName:    "apk-tools",
 					SrcVersion: "2.6.7-r0",
-					Licenses:   []string{"GPL-2.0"},
+					Licenses:   []string{"GPL-2.0-only"},
 					DependsOn: []string{
 						"libcrypto1.0@1.0.2h-r1",
 						"libssl1.0@1.0.2h-r1",
@@ -104,7 +104,7 @@ func TestParseApkInfo(t *testing.T) {
 					Version:    "1.1.6-r0",
 					SrcName:    "pax-utils",
 					SrcVersion: "1.1.6-r0",
-					Licenses:   []string{"GPL-2.0"},
+					Licenses:   []string{"GPL-2.0-only"},
 					DependsOn:  []string{"musl@1.1.14-r10"},
 				},
 				{
@@ -113,7 +113,7 @@ func TestParseApkInfo(t *testing.T) {
 					Version:    "1.1.14-r10",
 					SrcName:    "musl",
 					SrcVersion: "1.1.14-r10",
-					Licenses:   []string{"MIT", "BSD-3-Clause", "GPL-2.0"},
+					Licenses:   []string{"MIT", "BSD-3-Clause", "GPL-2.0-or-later"},
 					DependsOn: []string{
 						"musl@1.1.14-r10",
 						"scanelf@1.1.6-r0",
@@ -125,7 +125,7 @@ func TestParseApkInfo(t *testing.T) {
 					Version:    "0.7-r0",
 					SrcName:    "libc-dev",
 					SrcVersion: "0.7-r0",
-					Licenses:   []string{"GPL-3.0"},
+					Licenses:   []string{"GPL-2.0-or-later"},
 					DependsOn:  []string{"musl-utils@1.1.14-r10"},
 				},
 				{
