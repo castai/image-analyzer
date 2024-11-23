@@ -4,8 +4,8 @@ go 1.23.2
 
 require (
 	github.com/aquasecurity/go-dep-parser v0.0.0-20240606050805-1de9a375c629
-	github.com/aquasecurity/trivy v0.57.0
-	github.com/containerd/containerd v1.7.23
+	github.com/aquasecurity/trivy v0.57.1
+	github.com/containerd/containerd v1.7.24
 	github.com/docker/docker v27.3.1+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/google/go-containerregistry v0.20.2
@@ -16,8 +16,8 @@ require (
 	github.com/opencontainers/image-spec v1.1.0
 	github.com/samber/lo v1.47.0
 	github.com/sirupsen/logrus v1.9.3
-	github.com/stretchr/testify v1.9.0
-	golang.org/x/sync v0.8.0
+	github.com/stretchr/testify v1.10.0
+	golang.org/x/sync v0.9.0
 )
 
 require (
