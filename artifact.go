@@ -15,10 +15,12 @@ import (
 	"io"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
+	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/all"
 	"github.com/aquasecurity/trivy/pkg/fanal/artifact"
 	"github.com/aquasecurity/trivy/pkg/fanal/handler"
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
@@ -26,10 +28,7 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
-	"slices"
 	"golang.org/x/sync/semaphore"
-
-	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/all"
 
 	_ "github.com/castai/image-analyzer/apk"
 	_ "github.com/castai/image-analyzer/dpkg"
@@ -128,12 +127,16 @@ func (a Artifact) Inspect(ctx context.Context) (*ArtifactReference, error) {
 
 	// Convert image ID and layer IDs to cache keys
 	imageKey, layerKeys, layerKeyMap := a.calcCacheKeys(imageID, diffIDs)
+	a.log.Debugf("image key: %s", imageKey)
+	a.log.Debugf("layer keys: %v", layerKeys)
+	a.log.Debugf("layer key map: %v", layerKeyMap)
 
 	// Check if image artifact info already cached.
 	cachedArtifactInfo, err := a.getCachedArtifactInfo(ctx, imageKey)
 	if err != nil && !errors.Is(err, ErrCacheNotFound) {
-		return nil, err
+		return nil, fmt.Errorf("unable to access artifact cache: %w", err)
 	}
+
 	var missingImageKey string
 	if cachedArtifactInfo == nil {
 		missingImageKey = imageKey
@@ -142,7 +145,7 @@ func (a Artifact) Inspect(ctx context.Context) (*ArtifactReference, error) {
 	// Find cached layers
 	cachedLayers, err := a.getCachedLayers(ctx, layerKeys)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to access layers cache: %w", err)
 	}
 	missingLayersKeys := lo.Filter(layerKeys, func(v string, _ int) bool {
 		_, ok := cachedLayers[v]
