@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -35,10 +34,7 @@ import (
 	_ "github.com/castai/image-analyzer/rpm"
 )
 
-const (
-	parallel = 5
-)
-
+// Artifact bundles image with the required dependencies to be able to scan it.
 type Artifact struct {
 	log            logrus.FieldLogger
 	image          types.Image
@@ -47,12 +43,36 @@ type Artifact struct {
 	analyzer       analyzer.AnalyzerGroup
 	configAnalyzer analyzer.ConfigAnalyzerGroup
 	handlerManager handler.Manager
-
 	artifactOption artifact.Option
 }
 
+// ArtifactReference represents uncompressed image with its layers also uncompressed
+type ArtifactReference struct {
+	// BlobsInfo contains information about image layers
+	BlobsInfo    []types.BlobInfo
+	ConfigFile   *v1.ConfigFile
+	ArtifactInfo *types.ArtifactInfo
+	OsInfo       *types.OS
+}
+
+// ArtifactOption customizes scanning behavior
 type ArtifactOption = artifact.Option
 
+// CachedImage does not contain information about layers.
+// Identified by ImageID in cache.
+type CachedImage = types.ArtifactInfo
+
+// CachedLayers are identified by diffID in cache.
+type CachedLayers = map[string]types.BlobInfo
+
+type layerHashes struct {
+	// required to avoid calculation later
+	compressed string
+	// required for layer lookup in the cache
+	uncompressed string
+}
+
+// NewArtifact bundles already pulled image with additional dependencies for scanning.
 func NewArtifact(img types.Image, log logrus.FieldLogger, c CacheClient, opt ArtifactOption) (*Artifact, error) {
 	a, err := analyzer.NewAnalyzerGroup(analyzer.AnalyzerOptions{
 		Group:             opt.AnalyzerGroup,
@@ -86,82 +106,54 @@ func NewArtifact(img types.Image, log logrus.FieldLogger, c CacheClient, opt Art
 	}, nil
 }
 
-type ArtifactReference struct {
-	BlobsInfo    []types.BlobInfo
-	ConfigFile   *v1.ConfigFile
-	ArtifactInfo *types.ArtifactInfo
-	OsInfo       *types.OS
-}
-
 func (a Artifact) Inspect(ctx context.Context) (*ArtifactReference, error) {
 	imageID, err := a.image.ID()
 	if err != nil {
-		return nil, fmt.Errorf("unable to get the image ID: %w", err)
+		return nil, fmt.Errorf("getting image ID: %w", err)
 	}
+	a.log.Debugf("image ID: %s", imageID)
 
 	layers, err := a.image.Layers()
 	if err != nil {
-		return nil, fmt.Errorf("unable to get the image's layers: %w", err)
+		return nil, fmt.Errorf("getting image's layers: %w", err)
 	}
 
-	diffIDs := make([]string, len(layers))
-	for i, layer := range layers {
-		id, err := layer.DiffID()
-		if err != nil {
-			return nil, fmt.Errorf("unable to get the layer diff ID: %w", err)
-		}
-		diffIDs[i] = id.String()
+	layerIDs, err := getLayerHashes(layers)
+	if err != nil {
+		return nil, fmt.Errorf("getting layer's hashes: %w", err)
 	}
+
+	diffIDs := lo.Map(layerIDs, func(pair layerHashes, _ int) string { return pair.uncompressed })
+	a.log.Debugf("diff IDs: %v", diffIDs)
 
 	configFile, err := a.image.ConfigFile()
 	if err != nil {
-		return nil, fmt.Errorf("unable to get the image's config file: %w", err)
+		return nil, fmt.Errorf("getting image's config file: %w", err)
 	}
 
-	a.log.Debugf("image ID: %s", imageID)
-	a.log.Debugf("diff IDs: %v", diffIDs)
-
-	// Try to detect base layers.
 	baseDiffIDs := a.guessBaseLayers(diffIDs, configFile)
-	a.log.Debugf("base layers: %v", baseDiffIDs)
+	a.log.Debugf("base layer diff IDs: %v", baseDiffIDs)
 
-	// Convert image ID and layer IDs to cache keys
-	imageKey, layerKeys, layerKeyMap := a.calcCacheKeys(imageID, diffIDs)
-	a.log.Debugf("image key: %s", imageKey)
-	a.log.Debugf("layer keys: %v", layerKeys)
-	a.log.Debugf("layer key map: %v", layerKeyMap)
-
-	// Check if image artifact info already cached.
-	cachedArtifactInfo, err := a.getCachedArtifactInfo(ctx, imageKey)
-	if err != nil && !errors.Is(err, ErrCacheNotFound) {
-		return nil, fmt.Errorf("unable to access artifact cache: %w", err)
-	}
-
-	var missingImageKey string
-	if cachedArtifactInfo == nil {
-		missingImageKey = imageKey
-	} // otherwise we will use cachedArtifactInfo in reference.
-
-	// Find cached layers
-	cachedLayers, err := a.getCachedLayers(ctx, layerKeys)
+	cachedLayers, err := a.getCachedLayers(ctx, diffIDs)
 	if err != nil {
-		return nil, fmt.Errorf("unable to access layers cache: %w", err)
+		return nil, fmt.Errorf("getting cached layers: %w", err)
 	}
-	missingLayersKeys := lo.Filter(layerKeys, func(v string, _ int) bool {
+
+	missingLayerDiffIDs := lo.Filter(diffIDs, func(v string, _ int) bool {
 		_, ok := cachedLayers[v]
 		return !ok
 	})
-	a.log.Debugf("found %d cached layers, %d layers will be inspected", len(cachedLayers), len(missingLayersKeys))
+	a.log.Debugf("found %d cached layers, %d layers will be inspected", len(cachedLayers), len(missingLayerDiffIDs))
+	a.log.Debugf("layers with the following diff IDs will be inspected: %v", missingLayerDiffIDs)
 
-	// Inspect all not cached layers.
-	blobsInfo, artifactInfo, osInfo, err := a.inspect(ctx, missingImageKey, missingLayersKeys, baseDiffIDs, layerKeyMap)
+	blobsInfo, osInfo, err := a.inspectLayers(ctx, layerIDs, baseDiffIDs)
 	if err != nil {
-		return nil, fmt.Errorf("analyze error: %w", err)
+		return nil, fmt.Errorf("analyzing layers: %w", err)
 	}
 
-	if cachedArtifactInfo != nil {
-		// We use cached artifactInfo, because a.inspect did not create artifact info.
-		artifactInfo = cachedArtifactInfo
+	artifactInfo, err := a.inspectImage(ctx, configFile, imageID, *osInfo)
+	if err != nil {
+		return nil, fmt.Errorf("analyzing image: %w", err)
 	}
 
 	return &ArtifactReference{
@@ -172,172 +164,172 @@ func (a Artifact) Inspect(ctx context.Context) (*ArtifactReference, error) {
 	}, nil
 }
 
-func (a Artifact) getCachedArtifactInfo(ctx context.Context, key string) (*types.ArtifactInfo, error) {
-	blobBytes, err := a.cache.GetBlob(ctx, key)
+func getLayerHashes(layers []v1.Layer) ([]layerHashes, error) {
+	layerIDs := make([]layerHashes, 0, len(layers))
+	for _, layer := range layers {
+		compressedID, err := layer.Digest()
+		if err != nil {
+			return nil, fmt.Errorf("getting layer digest: %w", err)
+		}
+
+		uncompressedID, err := layer.DiffID()
+		if err != nil {
+			return nil, fmt.Errorf("getting layer diff ID: %w", err)
+		}
+
+		layerIDs = append(layerIDs, layerHashes{
+			compressed:   compressedID.String(),
+			uncompressed: uncompressedID.String(),
+		})
+	}
+
+	return layerIDs, nil
+}
+
+func (a Artifact) getCachedImage(ctx context.Context, imageID string) (*CachedImage, error) {
+	blobBytes, err := a.cache.GetBlob(ctx, imageID)
 	if err != nil {
 		return nil, ErrCacheNotFound
 	}
 	var res types.ArtifactInfo
 	if err := json.Unmarshal(blobBytes, &res); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshalling image: %w", err)
 	}
 	return &res, nil
 }
 
-func (a Artifact) getCachedLayers(ctx context.Context, ids []string) (map[string]types.BlobInfo, error) {
-	blobs := map[string]types.BlobInfo{}
-	for _, id := range ids {
-		blobBytes, err := a.cache.GetBlob(ctx, id)
+func (a Artifact) getCachedLayers(ctx context.Context, diffIDs []string) (CachedLayers, error) {
+	blobs := CachedLayers{}
+	for _, diffID := range diffIDs {
+		blobBytes, err := a.cache.GetBlob(ctx, diffID)
 		if err != nil && !errors.Is(err, ErrCacheNotFound) {
 			continue
 		}
 		if len(blobBytes) > 0 {
 			var blob types.BlobInfo
 			if err := json.Unmarshal(blobBytes, &blob); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("unmarshalling layer: %w", err)
 			}
-			blobs[id] = blob
+			blobs[diffID] = blob
 		}
 	}
 	return blobs, nil
+}
+
+func (a Artifact) putImageToCache(ctx context.Context, imageID string, image types.ArtifactInfo) error {
+	infoBytes, err := json.Marshal(image)
+	if err != nil {
+		return fmt.Errorf("marshalling image: %w", err)
+	}
+
+	return a.cache.PutBlob(ctx, imageID, infoBytes)
+}
+
+func (a Artifact) putLayerToCache(ctx context.Context, diffID string, layer types.BlobInfo) error {
+	layerBytes, err := json.Marshal(layer)
+	if err != nil {
+		return fmt.Errorf("marshalling layer: %w", err)
+	}
+
+	return a.cache.PutBlob(ctx, diffID, layerBytes)
 }
 
 func (Artifact) Clean(_ artifact.Reference) error {
 	return nil
 }
 
-func (a Artifact) calcCacheKeys(imageID string, diffIDs []string) (string, []string, map[string]string) {
-	// Currently cache keys are mapped 1 to 1 with image id and blobs id.
-	// If needed this logic can be extended to have custom cache keys.
-	imageKey := imageID
-	layerKeyMap := map[string]string{}
-	var layerKeys []string
-	for _, diffID := range diffIDs {
-		blobKey := diffID
-		layerKeys = append(layerKeys, diffID)
-		layerKeyMap[blobKey] = diffID
-	}
-	return imageKey, layerKeys, layerKeyMap
-}
-
-func (a Artifact) inspect(ctx context.Context, missingImageKey string, layerKeys, baseDiffIDs []string, layerKeyMap map[string]string) ([]types.BlobInfo, *types.ArtifactInfo, *types.OS, error) {
-	blobInfo := make(chan types.BlobInfo)
-
+func (a Artifact) inspectLayers(ctx context.Context, layerIDs []layerHashes, baseLayerDiffIDs []string) ([]types.BlobInfo, *types.OS, error) {
+	blobCh := make(chan types.BlobInfo)
 	errCh := make(chan error)
 	limit := semaphore.NewWeighted(int64(a.artifactOption.Parallel))
 
 	var osFound types.OS
 
 	go func() {
-		for _, k := range layerKeys {
+		for _, layerIdPair := range layerIDs {
 			if err := limit.Acquire(ctx, 1); err != nil {
-				errCh <- fmt.Errorf("semaphore acquire: %w", err)
+				errCh <- fmt.Errorf("acquiring semaphore: %w", err)
 				return
 			}
 
-			go func(ctx context.Context, layerKey string) {
-				defer func() {
-					limit.Release(1)
-				}()
-
-				diffID := layerKeyMap[layerKey]
+			go func(ctx context.Context, blobCh chan<- types.BlobInfo, errCh chan<- error, digest, diffID string) {
+				defer limit.Release(1)
 
 				// If it is a base layer, secret scanning should not be performed.
 				var disabledAnalyzers []analyzer.Type
-				if slices.Contains(baseDiffIDs, diffID) {
+				if slices.Contains(baseLayerDiffIDs, diffID) {
 					disabledAnalyzers = append(disabledAnalyzers, analyzer.TypeSecret)
 				}
 
-				layerInfo, err := a.inspectLayer(ctx, diffID, disabledAnalyzers)
+				layerInfo, err := a.inspectLayer(ctx, digest, diffID, disabledAnalyzers)
 				if err != nil {
-					errCh <- fmt.Errorf("failed to analyze layer: %s : %w", diffID, err)
+					errCh <- fmt.Errorf("analyzing layer with diff ID %s: %w", diffID, err)
 					return
 				}
 
-				layerBytes, err := json.Marshal(layerInfo)
-				if err != nil {
-					errCh <- err
-					return
-				}
-				if err := a.cache.PutBlob(ctx, layerKey, layerBytes); err != nil {
-					a.log.Warnf("putting blob to cache: %v", err)
+				if err := a.putLayerToCache(ctx, diffID, layerInfo); err != nil {
+					a.log.Warnf("putting layer blob to cache: %v", err)
 				}
 
 				if layerInfo.OS != (types.OS{}) {
 					osFound = layerInfo.OS
 				}
-				blobInfo <- layerInfo
-			}(ctx, k)
+				blobCh <- layerInfo
+			}(ctx, blobCh, errCh, layerIdPair.compressed, layerIdPair.uncompressed)
 		}
 	}()
 
-	blobsInfo := make([]types.BlobInfo, 0, len(layerKeys))
+	blobsInfo := make([]types.BlobInfo, 0, len(layerIDs))
 
-	for range layerKeys {
+	for range layerIDs {
 		select {
-		case blob := <-blobInfo:
+		case blob := <-blobCh:
 			blobsInfo = append(blobsInfo, blob)
 		case err := <-errCh:
-			return nil, nil, nil, err
+			return nil, nil, err
 		case <-ctx.Done():
-			return nil, nil, nil, fmt.Errorf("timeout: %w", ctx.Err())
+			return nil, nil, fmt.Errorf("timeout: %w", ctx.Err())
 		}
 	}
 
-	var artifactInfo *types.ArtifactInfo
-	if missingImageKey != "" {
-		var err error
-		artifactInfo, err = a.inspectConfig(ctx, missingImageKey, osFound)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("unable to analyze config: %w", err)
-		}
-	}
-
-	return blobsInfo, artifactInfo, &osFound, nil
+	return blobsInfo, &osFound, nil
 }
 
-func (a Artifact) inspectLayer(ctx context.Context, diffID string, disabled []analyzer.Type) (types.BlobInfo, error) {
-	a.log.Debugf("missing diff ID in cache: %s", diffID)
+func (a Artifact) inspectLayer(ctx context.Context, digest, diffID string, disabled []analyzer.Type) (types.BlobInfo, error) {
+	a.log.Debugf("analyzing layer with digest %q and diff ID %q", digest, diffID)
 
-	layerDigest, r, err := a.uncompressedLayer(diffID)
+	layerReader, err := a.openUncompressedLayer(diffID)
 	if err != nil {
 		return types.BlobInfo{}, fmt.Errorf("unable to get uncompressed layer %s: %w", diffID, err)
 	}
 
-	// Prepare variables
 	var wg sync.WaitGroup
 	opts := analyzer.AnalysisOptions{Offline: a.artifactOption.Offline}
 	result := analyzer.NewAnalysisResult()
 	limit := semaphore.NewWeighted(int64(a.artifactOption.Parallel))
 
-	// Walk a tar layer
-	opqDirs, whFiles, err := a.walker.Walk(r, func(filePath string, info os.FileInfo, opener analyzer.Opener) error {
-		if err = a.analyzer.AnalyzeFile(ctx, &wg, limit, result, "", filePath, info, opener, disabled, opts); err != nil {
-			return fmt.Errorf("failed to analyze %s: %w", filePath, err)
-		}
-		return nil
+	opaqueDirs, whiteoutFiles, err := a.walker.Walk(layerReader, func(filePath string, info os.FileInfo, opener analyzer.Opener) error {
+		return a.analyzer.AnalyzeFile(ctx, &wg, limit, result, "", filePath, info, opener, disabled, opts)
 	})
 	if err != nil {
 		return types.BlobInfo{}, fmt.Errorf("walk error: %w", err)
 	}
 
-	// Wait for all the goroutine to finish.
 	wg.Wait()
-
 	// Sort the analysis result for consistent results
 	result.Sort()
 
 	blobInfo := types.BlobInfo{
 		SchemaVersion:   types.BlobJSONSchemaVersion,
-		Digest:          layerDigest,
+		Digest:          digest,
 		DiffID:          diffID,
 		OS:              result.OS,
 		Repository:      result.Repository,
 		PackageInfos:    result.PackageInfos,
 		Applications:    result.Applications,
 		Secrets:         result.Secrets,
-		OpaqueDirs:      opqDirs,
-		WhiteoutFiles:   whFiles,
+		OpaqueDirs:      opaqueDirs,
+		WhiteoutFiles:   whiteoutFiles,
 		CustomResources: result.CustomResources,
 
 		// For Red Hat
@@ -352,49 +344,28 @@ func (a Artifact) inspectLayer(ctx context.Context, diffID string, disabled []an
 	return blobInfo, nil
 }
 
-func (a Artifact) uncompressedLayer(diffID string) (string, io.Reader, error) {
+func (a Artifact) openUncompressedLayer(diffID string) (io.Reader, error) {
 	// diffID is a hash of the uncompressed layer
 	h, err := v1.NewHash(diffID)
 	if err != nil {
-		return "", nil, fmt.Errorf("invalid layer ID (%s): %w", diffID, err)
+		return nil, fmt.Errorf("invalid layer ID (%s): %w", diffID, err)
 	}
 
 	layer, err := a.image.LayerByDiffID(h)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to get the layer (%s): %w", diffID, err)
+		return nil, fmt.Errorf("failed to get the layer (%s): %w", diffID, err)
 	}
 
-	// digest is a hash of the compressed layer
-	var digest string
-	if a.isCompressed(layer) {
-		d, err := layer.Digest()
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to get the digest (%s): %w", diffID, err)
-		}
-		digest = d.String()
-	}
-
-	r, err := layer.Uncompressed()
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to get the layer content (%s): %w", diffID, err)
-	}
-	return digest, r, nil
+	return layer.Uncompressed()
 }
 
-// ref. https://github.com/google/go-containerregistry/issues/701
-func (a Artifact) isCompressed(l v1.Layer) bool {
-	_, uncompressed := reflect.TypeOf(l).Elem().FieldByName("UncompressedLayer")
-	return !uncompressed
-}
-
-func (a Artifact) inspectConfig(ctx context.Context, imageID string, osFound types.OS) (*types.ArtifactInfo, error) {
-	cfg, err := a.image.ConfigFile()
-	if err != nil {
-		return nil, fmt.Errorf("unable to get config blob: %w", err)
+func (a Artifact) inspectImage(ctx context.Context, cfg *v1.ConfigFile, imageID string, osFound types.OS) (*types.ArtifactInfo, error) {
+	cachedImage, err := a.getCachedImage(ctx, imageID)
+	if err == nil {
+		return cachedImage, nil
 	}
 
 	pkgs := a.configAnalyzer.AnalyzeImageConfig(ctx, osFound, cfg)
-
 	info := types.ArtifactInfo{
 		SchemaVersion:   types.ArtifactJSONSchemaVersion,
 		Architecture:    cfg.Architecture,
@@ -404,13 +375,8 @@ func (a Artifact) inspectConfig(ctx context.Context, imageID string, osFound typ
 		HistoryPackages: pkgs.HistoryPackages,
 	}
 
-	// Cache info.
-	infoBytes, err := json.Marshal(info)
-	if err != nil {
-		return nil, err
-	}
-	if err := a.cache.PutBlob(ctx, imageID, infoBytes); err != nil {
-		a.log.Warnf("putting config cache blob: %v", err)
+	if err := a.putImageToCache(ctx, imageID, info); err != nil {
+		a.log.Warnf("putting image blob to cache: %v", err)
 	}
 
 	return &info, nil
