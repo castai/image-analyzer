@@ -2,31 +2,27 @@ package rpm
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
-	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
-	"github.com/aquasecurity/trivy/pkg/log"
-
-	"slices"
-
-	"github.com/aquasecurity/trivy/pkg/fanal/types"
-	"github.com/aquasecurity/trivy/pkg/fanal/utils"
 	rpmdb "github.com/knqyf263/go-rpmdb/pkg"
 	"github.com/samber/lo"
+	"golang.org/x/xerrors"
 
-	"github.com/castai/image-analyzer/pathutil"
+	"github.com/aquasecurity/trivy/pkg/digest"
+	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
+	"github.com/aquasecurity/trivy/pkg/fanal/types"
+	"github.com/aquasecurity/trivy/pkg/log"
 )
 
-// https://github.com/aquasecurity/trivy/blob/v0.50.1/pkg/fanal/analyzer/all/import.go
 func init() {
-	analyzer.DeregisterAnalyzer(analyzer.TypeRpm) // prevents registering analyzer twice
-	analyzer.RegisterAnalyzer(&rpmPkgAnalyzer{})
+  analyzer.DeregisterAnalyzer(analyzer.TypeRpm) // prevents registering analyzer twice
+	analyzer.RegisterAnalyzer(newRPMPkgAnalyzer())
 }
 
 const version = 3
@@ -46,7 +42,7 @@ var (
 		"var/lib/rpm/rpmdb.sqlite",
 	}
 
-	errUnexpectedNameFormat = errors.New("unexpected name format")
+	errUnexpectedNameFormat = xerrors.New("unexpected name format")
 )
 
 var osVendors = []string{
@@ -62,27 +58,24 @@ var osVendors = []string{
 	"SUSE",                  // SUSE Linux Enterprise
 	"openSUSE",              // openSUSE
 	"Microsoft Corporation", // CBL-Mariner
+	"Rocky",                 // Rocky Linux
 }
 
 type rpmPkgAnalyzer struct{}
 
+func newRPMPkgAnalyzer() *rpmPkgAnalyzer {
+	return &rpmPkgAnalyzer{}
+}
+
+type RPMDB interface {
+	ListPackages() ([]*rpmdb.PackageInfo, error)
+}
+
 func (a rpmPkgAnalyzer) Analyze(ctx context.Context, input analyzer.AnalysisInput) (*analyzer.AnalysisResult, error) {
+	ctx = log.WithContextPrefix(ctx, "rpm")
 	parsedPkgs, installedFiles, err := a.parsePkgInfo(ctx, input.Content)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse rpmdb: %w", err)
-	}
-
-	binaryMap := map[string][]string{}
-	var systemInstalledFiles = make([]string, 0)
-
-	for pkgName, files := range installedFiles {
-		systemInstalledFiles = append(systemInstalledFiles, files...)
-		binaries := lo.Filter(lo.Map(files, func(item string, index int) string {
-			return pathutil.CleanPath(item)
-		}), pathutil.BinariesPathFilter)
-		if len(binaries) > 0 {
-			binaryMap[pkgName] = binaries
-		}
+		return nil, xerrors.Errorf("failed to parse rpmdb: %w", err)
 	}
 
 	return &analyzer.AnalysisResult{
@@ -92,21 +85,14 @@ func (a rpmPkgAnalyzer) Analyze(ctx context.Context, input analyzer.AnalysisInpu
 				Packages: parsedPkgs,
 			},
 		},
-		SystemInstalledFiles: systemInstalledFiles,
-		CustomResources: []types.CustomResource{
-			{
-				Type:     pathutil.TypeInstalledBinaries,
-				FilePath: input.FilePath,
-				Data:     binaryMap,
-			},
-		},
+		SystemInstalledFiles: installedFiles,
 	}, nil
 }
 
-func (a rpmPkgAnalyzer) parsePkgInfo(ctx context.Context, rc io.Reader) ([]types.Package, map[string][]string, error) {
+func (a rpmPkgAnalyzer) parsePkgInfo(ctx context.Context, rc io.Reader) (types.Packages, []string, error) {
 	filePath, err := writeToTempFile(rc)
 	if err != nil {
-		return nil, nil, fmt.Errorf("temp file error: %w", err)
+		return nil, nil, xerrors.Errorf("temp file error: %w", err)
 	}
 	defer os.RemoveAll(filepath.Dir(filePath)) // Remove the temp dir
 
@@ -114,21 +100,25 @@ func (a rpmPkgAnalyzer) parsePkgInfo(ctx context.Context, rc io.Reader) ([]types
 	// Extract binary package names because RHSA refers to binary package names.
 	db, err := rpmdb.Open(filePath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to open RPM DB: %w", err)
+		return nil, nil, xerrors.Errorf("failed to open RPM DB: %w", err)
 	}
 	defer db.Close()
 
+	return a.listPkgs(ctx, db)
+}
+
+func (a rpmPkgAnalyzer) listPkgs(ctx context.Context, db RPMDB) (types.Packages, []string, error) {
 	// equivalent:
 	//   new version: rpm -qa --qf "%{NAME} %{EPOCHNUM} %{VERSION} %{RELEASE} %{SOURCERPM} %{ARCH}\n"
 	//   old version: rpm -qa --qf "%{NAME} %{EPOCH} %{VERSION} %{RELEASE} %{SOURCERPM} %{ARCH}\n"
 	pkgList, err := db.ListPackages()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to list packages: %w", err)
+		return nil, nil, xerrors.Errorf("failed to list packages: %w", err)
 	}
 
 	var pkgs []types.Package
-	installedFiles := map[string][]string{}
-	provides := map[string]string{}
+	var installedFiles []string
+	provides := make(map[string]string)
 	for _, pkg := range pkgList {
 		arch := pkg.Arch
 		if arch == "" {
@@ -141,18 +131,34 @@ func (a rpmPkgAnalyzer) parsePkgInfo(ctx context.Context, rc io.Reader) ([]types
 			// source epoch is not included in SOURCERPM
 			srcName, srcVer, srcRel, err = splitFileName(pkg.SourceRpm)
 			if err != nil {
-				log.DebugContext(ctx, "Invalid Source RPM Found: %s", pkg.SourceRpm)
+				log.DebugContext(ctx, "Invalid Source RPM Found", log.String("sourcerpm", pkg.SourceRpm))
 			}
 		}
 
 		// Check if the package is vendor-provided.
 		// If the package is not provided by vendor, the installed files should not be skipped.
 		var files []string
-		if packageProvidedByVendor(pkg.Vendor) {
+		if packageProvidedByVendor(pkg) {
 			files, err = pkg.InstalledFileNames()
 			if err != nil {
-				return nil, nil, fmt.Errorf("unable to get installed files: %w", err)
+				return nil, nil, xerrors.Errorf("unable to get installed files: %w", err)
 			}
+
+			for i, file := range files {
+				files[i] = filepath.ToSlash(file)
+			}
+		}
+
+		// RPM DB uses MD5 digest
+		// https://rpm-software-management.github.io/rpm/manual/tags.html#signatures-and-digests
+		var d digest.Digest
+		if pkg.SigMD5 != "" {
+			d = digest.NewDigestFromString(digest.MD5, pkg.SigMD5)
+		}
+
+		var licenses []string
+		if pkg.License != "" {
+			licenses = []string{pkg.License}
 		}
 
 		p := types.Package{
@@ -167,12 +173,14 @@ func (a rpmPkgAnalyzer) parsePkgInfo(ctx context.Context, rc io.Reader) ([]types
 			SrcVersion:      srcVer,
 			SrcRelease:      srcRel,
 			Modularitylabel: pkg.Modularitylabel,
-			Licenses:        []string{pkg.License},
+			Licenses:        licenses,
 			DependsOn:       pkg.Requires, // Will be replaced with package IDs
 			Maintainer:      pkg.Vendor,
+			Digest:          d,
+			InstalledFiles:  files,
 		}
 		pkgs = append(pkgs, p)
-		installedFiles[pkg.Name] = files
+		installedFiles = append(installedFiles, files...)
 
 		// It contains mappings between package-providing files and package IDs
 		// e.g.
@@ -190,7 +198,7 @@ func (a rpmPkgAnalyzer) parsePkgInfo(ctx context.Context, rc io.Reader) ([]types
 }
 
 func (a rpmPkgAnalyzer) Required(filePath string, _ os.FileInfo) bool {
-	return utils.StringInSlice(filePath, requiredFiles)
+	return slices.Contains(requiredFiles, filePath)
 }
 
 func (a rpmPkgAnalyzer) Type() analyzer.Type {
@@ -232,34 +240,41 @@ func splitFileName(filename string) (name, ver, rel string, err error) {
 	return name, ver, rel, nil
 }
 
-func packageProvidedByVendor(pkgVendor string) bool {
+func packageProvidedByVendor(pkg *rpmdb.PackageInfo) bool {
+	if pkg.Vendor == "" {
+		// Official Amazon packages may not contain `Vendor` field:
+		// https://github.com/aquasecurity/trivy/issues/5887
+		return strings.Contains(pkg.Release, "amzn")
+	}
+
 	for _, vendor := range osVendors {
-		if strings.HasPrefix(pkgVendor, vendor) {
+		if strings.HasPrefix(pkg.Vendor, vendor) {
 			return true
 		}
 	}
+
 	return false
 }
 
 func writeToTempFile(rc io.Reader) (string, error) {
 	tmpDir, err := os.MkdirTemp("", "rpm")
 	if err != nil {
-		return "", fmt.Errorf("failed to create a temp dir: %w", err)
+		return "", xerrors.Errorf("failed to create a temp dir: %w", err)
 	}
 
 	filePath := filepath.Join(tmpDir, "Packages")
 	f, err := os.Create(filePath)
 	if err != nil {
-		return "", fmt.Errorf("failed to create a package file: %w", err)
+		return "", xerrors.Errorf("failed to create a package file: %w", err)
 	}
 
 	if _, err = io.Copy(f, rc); err != nil {
-		return "", fmt.Errorf("failed to copy a package file: %w", err)
+		return "", xerrors.Errorf("failed to copy a package file: %w", err)
 	}
 
 	// The temp file must be closed before being opened as Berkeley DB.
 	if err = f.Close(); err != nil {
-		return "", fmt.Errorf("failed to close a temp file: %w", err)
+		return "", xerrors.Errorf("failed to close a temp file: %w", err)
 	}
 
 	return filePath, nil
