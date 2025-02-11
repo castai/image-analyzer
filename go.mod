@@ -2,11 +2,11 @@ module github.com/castai/image-analyzer
 
 go 1.23.4
 
-toolchain go1.23.5
+toolchain go1.24.0
 
 require (
 	github.com/aquasecurity/go-dep-parser v0.0.0-20240606050805-1de9a375c629
-	github.com/aquasecurity/trivy v0.59.0
+	github.com/aquasecurity/trivy v0.59.1
 	github.com/containerd/containerd v1.7.25
 	github.com/docker/docker v27.5.1+incompatible
 	github.com/docker/go-connections v0.5.0
@@ -19,7 +19,7 @@ require (
 	github.com/samber/lo v1.49.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/sync v0.10.0
+	golang.org/x/sync v0.11.0
 )
 
 require (
