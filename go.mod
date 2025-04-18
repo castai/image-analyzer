@@ -8,7 +8,7 @@ require (
 	github.com/aquasecurity/go-dep-parser v0.0.0-20240606050805-1de9a375c629
 	github.com/aquasecurity/trivy v0.61.0
 	github.com/containerd/containerd v1.7.27
-	github.com/docker/docker v27.5.1+incompatible
+	github.com/docker/docker v28.1.1+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/google/go-containerregistry v0.20.3
 	github.com/knqyf263/go-apk-version v0.0.0-20200609155635-041fdbb8563f
