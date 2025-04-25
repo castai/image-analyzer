@@ -79,6 +79,10 @@ func TestSingleArchImageDigest(t *testing.T) {
 	manifestDigest, err := img.Digest()
 	r.NoError(err)
 	r.Equal("sha256:599fe5e5073102dbb0ee3dbb65f049dab44fa9fc251f6835c9990f8fb196a72b", manifestDigest.String())
+
+	// index digest
+	index := img.Index()
+	r.Nil(index)
 }
 
 func TestMultiArchImageDigest(t *testing.T) {
@@ -123,6 +127,10 @@ func TestMultiArchImageDigest(t *testing.T) {
 		manifestDigest, err := img.Digest()
 		r.NoError(err)
 		r.Equal("sha256:0c7dc14e63e6b5d5810d752ca28bb24c0fb6552971a19514d914bceac93f44e0", manifestDigest.String())
+
+		// index digest
+		index := img.Index()
+		r.Nil(index)
 	})
 
 	t.Run("linux/arm64/v8 variant", func(t *testing.T) {
@@ -158,6 +166,10 @@ func TestMultiArchImageDigest(t *testing.T) {
 		manifestDigest, err := img.Digest()
 		r.NoError(err)
 		r.Equal("sha256:b2f8e72d0cb3159313521f04f9e1de12e401aa4cac97be63d75545f722d70be5", manifestDigest.String())
+
+		// index digest
+		index := img.Index()
+		r.Nil(index)
 	})
 }
 
