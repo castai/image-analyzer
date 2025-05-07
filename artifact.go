@@ -28,10 +28,6 @@ import (
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/semaphore"
-
-	_ "github.com/castai/image-analyzer/apk"
-	_ "github.com/castai/image-analyzer/dpkg"
-	_ "github.com/castai/image-analyzer/rpm"
 )
 
 // Artifact bundles image with the required dependencies to be able to scan it.
@@ -308,14 +304,46 @@ func (a Artifact) inspectLayer(ctx context.Context, digest, diffID string, disab
 	result := analyzer.NewAnalysisResult()
 	limit := semaphore.NewWeighted(int64(a.artifactOption.Parallel))
 
+	// Prepare filesystem for post analysis
+	composite, err := a.analyzer.PostAnalyzerFS()
+	if err != nil {
+		return types.BlobInfo{}, fmt.Errorf("unable to get post analysis filesystem: %w", err)
+	}
+	defer composite.Cleanup()
+
 	opaqueDirs, whiteoutFiles, err := a.walker.Walk(layerReader, func(filePath string, info os.FileInfo, opener analyzer.Opener) error {
-		return a.analyzer.AnalyzeFile(ctx, &wg, limit, result, "", filePath, info, opener, disabled, opts)
+		if err = a.analyzer.AnalyzeFile(ctx, &wg, limit, result, "", filePath, info, opener, disabled, opts); err != nil {
+			return fmt.Errorf("failed to analyze %s: %w", filePath, err)
+		}
+
+		// Skip post analysis if the file is not required
+		analyzerTypes := a.analyzer.RequiredPostAnalyzers(filePath, info)
+		if len(analyzerTypes) == 0 {
+			return nil
+		}
+
+		// Build filesystem for post analysis
+		tmpFilePath, err := composite.CopyFileToTemp(opener, info)
+		if err != nil {
+			return fmt.Errorf("failed to copy file to temp: %w", err)
+		}
+		if err = composite.CreateLink(analyzerTypes, "", filePath, tmpFilePath); err != nil {
+			return fmt.Errorf("failed to write a file: %w", err)
+		}
+
+		return nil
 	})
 	if err != nil {
 		return types.BlobInfo{}, fmt.Errorf("walk error: %w", err)
 	}
 
 	wg.Wait()
+
+	// Post-analysis
+	if err = a.analyzer.PostAnalyze(ctx, composite, result, opts); err != nil {
+		return types.BlobInfo{}, fmt.Errorf("post analysis error: %w", err)
+	}
+
 	// Sort the analysis result for consistent results
 	result.Sort()
 
