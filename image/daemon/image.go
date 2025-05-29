@@ -22,13 +22,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 )
 
-type Image interface {
-	v1.Image
-	RepoTags() []string
-	RepoDigests() []string
-	Index() *v1.IndexManifest
-}
-
 var mu sync.Mutex
 
 type opener func() (v1.Image, error)
@@ -89,6 +82,14 @@ func (img *image) populateImage() (err error) {
 	return nil
 }
 
+func (img *image) Name() string {
+	return img.inspect.ID
+}
+
+func (img *image) ID() (string, error) {
+	return img.inspect.ID, nil
+}
+
 func (img *image) ConfigName() (v1.Hash, error) {
 	return v1.NewHash(img.inspect.ID)
 }
@@ -100,8 +101,14 @@ func (img *image) Manifest() (*v1.Manifest, error) {
 	return img.Image.Manifest()
 }
 
-func (img *image) Index() *v1.IndexManifest {
-	return nil
+func (img *image) IndexDigest() (v1.Hash, error) {
+	// index manifest is not available in daemon mode as the image is already pulled
+	return v1.Hash{}, nil
+}
+
+func (img *image) IndexManifest() (*v1.IndexManifest, error) {
+	// index manifest is not available in daemon mode as the image is already pulled
+	return nil, nil
 }
 
 func (img *image) ConfigFile() (*v1.ConfigFile, error) {

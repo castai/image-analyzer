@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	itypes "github.com/castai/image-analyzer/image/types"
+
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/google/go-containerregistry/pkg/v1/types"
@@ -24,7 +26,7 @@ const (
 	blobs = "blobs"
 )
 
-func NewContainerdImage(hash v1.Hash, cfg ContainerdHostFSConfig) (Image, error) {
+func NewContainerdImage(hash v1.Hash, cfg ContainerdHostFSConfig) (itypes.ImageWithIndex, error) {
 	metadataReader := newContainerdMetadataReader(hash, cfg)
 	metadata, err := metadataReader.readMetadata()
 	if err != nil {
@@ -37,12 +39,13 @@ func NewContainerdImage(hash v1.Hash, cfg ContainerdHostFSConfig) (Image, error)
 	}
 
 	return &containerdBlobImage{
-		manifest:    metadata.Manifest,
-		index:       metadata.Index,
-		config:      config,
-		configBytes: configBytes,
-		contentDir:  cfg.ContentDir,
-		imgHash:     metadata.Digest,
+		manifest:       metadata.Manifest,
+		manifestDigest: metadata.ManifestDigest,
+		index:          metadata.Index,
+		indexDigest:    metadata.IndexDigest,
+		config:         config,
+		configBytes:    configBytes,
+		contentDir:     cfg.ContentDir,
 	}, nil
 }
 
@@ -66,9 +69,10 @@ type ContainerdHostFSConfig struct {
 }
 
 type containerdMetadata struct {
-	Index    *v1.IndexManifest
-	Manifest *v1.Manifest
-	Digest   v1.Hash
+	Index          *v1.IndexManifest
+	IndexDigest    v1.Hash
+	Manifest       *v1.Manifest
+	ManifestDigest v1.Hash
 }
 
 type manifestOrIndex struct {
@@ -119,7 +123,7 @@ func (h *containerdMetadataReader) readMetadata() (*containerdMetadata, error) {
 		manOrIdx manifestOrIndex
 	)
 
-	metadata.Digest = h.imgHash
+	metadata.ManifestDigest = h.imgHash
 	if err := readManifest(
 		path.Join(h.cfg.ContentDir, blobs, h.imgHash.Algorithm, h.imgHash.Hex), &manOrIdx,
 	); err != nil {
@@ -138,7 +142,7 @@ func (h *containerdMetadataReader) readMetadata() (*containerdMetadata, error) {
 			return nil, err
 		}
 
-		metadata.Digest = v1.Hash{
+		metadata.ManifestDigest = v1.Hash{
 			Algorithm: "sha256",
 			Hex:       filename,
 		}
@@ -152,6 +156,7 @@ func (h *containerdMetadataReader) readMetadata() (*containerdMetadata, error) {
 	// Search manifest from index manifest.
 	if len(manOrIdx.Manifests) > 0 {
 		metadata.Index = manOrIdx.index()
+		metadata.IndexDigest = h.imgHash
 		for _, manifest := range manOrIdx.Manifests {
 			if matchingPlatform(h.cfg.Platform, *manifest.Platform) {
 				if err := readManifest(
@@ -163,7 +168,7 @@ func (h *containerdMetadataReader) readMetadata() (*containerdMetadata, error) {
 					return nil, errors.New("invalid manifest, no layers")
 				}
 				metadata.Manifest = manOrIdx.manifest()
-				metadata.Digest = manifest.Digest
+				metadata.ManifestDigest = manifest.Digest
 				return &metadata, nil
 			}
 		}
@@ -225,13 +230,26 @@ func (h *containerdMetadataReader) searchManifestPath() (string, string, error) 
 }
 
 type containerdBlobImage struct {
-	manifest    *v1.Manifest
-	index       *v1.IndexManifest
-	config      *v1.ConfigFile
-	configBytes []byte
-	imgHash     v1.Hash
+	manifest       *v1.Manifest
+	manifestDigest v1.Hash
+	index          *v1.IndexManifest
+	indexDigest    v1.Hash
+	config         *v1.ConfigFile
+	configBytes    []byte
 
 	contentDir string
+}
+
+func (img *containerdBlobImage) Name() string {
+	return img.config.Config.Image
+}
+
+func (img *containerdBlobImage) ID() (string, error) {
+	h, err := img.ConfigName()
+	if err != nil {
+		return "", err
+	}
+	return h.String(), nil
 }
 
 func (b *containerdBlobImage) Layers() ([]v1.Layer, error) {
@@ -259,16 +277,12 @@ func (b *containerdBlobImage) Manifest() (*v1.Manifest, error) {
 	return b.manifest, nil
 }
 
-func (b *containerdBlobImage) Index() *v1.IndexManifest {
-	return b.index
-}
-
 func (b *containerdBlobImage) RawConfigFile() ([]byte, error) {
 	return b.configBytes, nil
 }
 
 func (b *containerdBlobImage) Digest() (v1.Hash, error) {
-	return b.imgHash, nil
+	return b.manifestDigest, nil
 }
 
 func (b *containerdBlobImage) LayerByDigest(hash v1.Hash) (v1.Layer, error) {
@@ -287,6 +301,14 @@ func (b *containerdBlobImage) LayerByDiffID(hash v1.Hash) (v1.Layer, error) {
 
 	l := b.manifest.Layers[idx]
 	return b.LayerByDigest(l.Digest)
+}
+
+func (b *containerdBlobImage) IndexDigest() (v1.Hash, error) {
+	return b.indexDigest, nil
+}
+
+func (b *containerdBlobImage) IndexManifest() (*v1.IndexManifest, error) {
+	return b.index, nil
 }
 
 // currently unused

@@ -13,21 +13,21 @@ func TestContainerdImage(t *testing.T) {
 		hash v1.Hash
 	}{
 		{
-			name: "find by manifest index",
+			name: "find by index digest",
 			hash: v1.Hash{
 				Algorithm: "sha256",
 				Hex:       "211a3be9e15e1e4ccd75220aa776d92e06235552351464db2daf043bd30a0ac0",
 			},
 		},
 		{
-			name: "find by manifest",
+			name: "find by manifest digest",
 			hash: v1.Hash{
 				Algorithm: "sha256",
 				Hex:       "c3c447d49bb140a121311afd8d922eef160bfd63872fdb809ae89fdcf27bee50",
 			},
 		},
 		{
-			name: "find by config file",
+			name: "find by config file digest",
 			hash: v1.Hash{
 				Algorithm: "sha256",
 				Hex:       "412c5a9fed875c1ce63f2dba535353162c9760c07379def9ac87cb0201b532de",
@@ -56,29 +56,35 @@ func TestContainerdImage(t *testing.T) {
 			config, err := img.ConfigFile()
 			r.NoError(err)
 			r.Len(config.RootFS.DiffIDs, 2)
+			manifestDigest, err := img.Digest()
+			r.NoError(err)
+			r.Equal(tests[1].hash, manifestDigest)
 		})
 	}
 }
 
 func TestContainerdImageWithIndex(t *testing.T) {
 	r := require.New(t)
-	img, err := NewContainerdImage(v1.Hash{
+	hash := v1.Hash{
 		Algorithm: "sha256",
 		Hex:       "211a3be9e15e1e4ccd75220aa776d92e06235552351464db2daf043bd30a0ac0",
-	},
-		ContainerdHostFSConfig{
-			Platform: v1.Platform{
-				Architecture: "amd64",
-				OS:           "linux",
-			},
-			ContentDir: "./testdata/containerd_content",
+	}
+	img, err := NewContainerdImage(hash, ContainerdHostFSConfig{
+		Platform: v1.Platform{
+			Architecture: "amd64",
+			OS:           "linux",
 		},
-	)
+		ContentDir: "./testdata/containerd_content",
+	})
 	r.NoError(err)
 
-	index := img.Index()
+	index, err := img.IndexManifest()
+	r.NoError(err)
 	r.NotNil(index)
-	r.Len(index.Manifests, 2)
+
+	indexDigest, err := img.IndexDigest()
+	r.NoError(err)
+	r.Equal(hash, indexDigest)
 
 	manifest, err := img.Manifest()
 	r.NoError(err)

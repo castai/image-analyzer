@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"os"
 
+	itypes "github.com/castai/image-analyzer/image/types"
+
 	"github.com/docker/docker/client"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -19,7 +21,7 @@ import (
 
 // DockerImage implements v1.Image by extending daemon.Image.
 // The caller must call cleanup() to remove a temporary file.
-func DockerImage(ref name.Reference) (Image, func(), error) {
+func DockerImage(ref name.Reference) (itypes.ImageWithIndex, func(), error) {
 	cleanup := func() {}
 
 	c, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
@@ -70,7 +72,7 @@ func DockerImage(ref name.Reference) (Image, func(), error) {
 
 // DockerTarImage implements v1.Image by extending daemon.Image.
 // The caller must call cleanup() to remove a temporary file.
-func DockerTarImage(ref name.Reference, localTarPath string) (Image, func(), error) {
+func DockerTarImage(ref name.Reference, localTarPath string) (itypes.ImageWithIndex, func(), error) {
 	cleanup := func() {}
 
 	c, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
