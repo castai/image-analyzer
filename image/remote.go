@@ -17,31 +17,30 @@ import (
 )
 
 type DockerConfig struct {
-	Auths map[string]RegistryAuth `json:"auths"`
+	Auths map[string]authn.AuthConfig `json:"auths"`
 }
 
-type RegistryAuth struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Token    string `json:"auth"`
-}
-
+// NewFromRemote pulls using dockerAuth if provided (via authn.FromConfig).
+// Otherwise it tries the Trivy cloud-provider token fallback (ECR/GCR/ACR).
+// If neither is available, it pulls anonymously.
 func NewFromRemote(
 	ctx context.Context,
 	log logrus.FieldLogger,
 	imageName string,
 	option types.ImageOptions,
+	dockerAuth *authn.AuthConfig, // optional: raw docker auth block
 ) (ImageWithIndex, error) {
 	var nameOpts []name.Option
 	if option.RegistryOptions.Insecure {
 		nameOpts = append(nameOpts, name.Insecure)
 	}
+
 	ref, err := name.ParseReference(imageName, nameOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse the image name: %w", err)
 	}
 
-	img, err := tryRemote(ctx, log, imageName, ref, option)
+	img, err := tryRemote(ctx, log, imageName, ref, option, dockerAuth)
 	if err != nil {
 		return nil, err
 	}
@@ -54,10 +53,13 @@ func tryRemote(
 	imageName string,
 	ref name.Reference,
 	option types.ImageOptions,
+	dockerAuth *authn.AuthConfig,
 ) (ImageWithIndex, error) {
 	remoteOpts := []remote.Option{
 		remote.WithContext(ctx),
 	}
+
+	// honor "insecure" — allow HTTP or skip TLS verification
 	if option.RegistryOptions.Insecure {
 		t := &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
@@ -65,31 +67,28 @@ func tryRemote(
 		remoteOpts = append(remoteOpts, remote.WithTransport(t))
 	}
 
-	// Username/Password based auth.
-	if len(option.RegistryOptions.Credentials) > 0 {
-		log.Info("using basic authentication to pull an image")
-		for _, cred := range option.RegistryOptions.Credentials {
-			remoteOpts = append(remoteOpts, remote.WithAuth(&authn.Basic{
-				Username: cred.Username,
-				Password: cred.Password,
-			}))
-		}
+	// Auth selection:
+	if dockerAuth != nil {
+		log.Info("using docker config authentication to pull an image")
+		remoteOpts = append(remoteOpts, remote.WithAuth(authn.FromConfig(*dockerAuth)))
 	} else {
-		log.Info("using other authentication to pull an image")
+		log.Info("no docker auth provided; trying cloud-provider/bearer/anonymous")
 		domain := ref.Context().RegistryStr()
-		auth := registry.GetToken(ctx, domain, option.RegistryOptions)
-		if auth.Username != "" && auth.Password != "" {
+
+		// In theory might be used when the workloads don’t use a pull secret because the cluster has node or pod identity-based
+		// registry access configured (e.g., ECR IAM roles, GKE Workload Identity, AKS Managed Identity).
+		if auth := registry.GetToken(ctx, domain, option.RegistryOptions); auth.Username != "" || auth.Password != "" {
 			log.Info("using cloud provider registry token to pull an image")
 			remoteOpts = append(remoteOpts, remote.WithAuth(&auth))
-		} else if option.RegistryOptions.RegistryToken != "" {
+		} else if tok := strings.TrimSpace(option.RegistryOptions.RegistryToken); tok != "" {
 			log.Info("using bearer token to pull an image")
-			bearer := authn.Bearer{Token: option.RegistryOptions.RegistryToken}
-			remoteOpts = append(remoteOpts, remote.WithAuth(&bearer))
+			remoteOpts = append(remoteOpts, remote.WithAuth(&authn.Bearer{Token: tok}))
 		} else {
-			log.Info("not using authentication to pull an image after all")
+			log.Info("pulling anonymously (no auth)")
 		}
 	}
 
+	// honor requested platform
 	if platform := option.RegistryOptions.Platform.Platform; platform != nil {
 		remoteOpts = append(remoteOpts, remote.WithPlatform(*platform))
 	}
