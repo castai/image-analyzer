@@ -37,7 +37,6 @@ func sha256Digest(b []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// fakeRegistry spins up a minimal OCI registry for testing.
 func fakeRegistry(t *testing.T, wantAuthPrefix string, omitCfg, omitLayer bool) *httptest.Server {
 	t.Helper()
 
@@ -111,15 +110,23 @@ func TestNewFromRemote_AuthVariants(t *testing.T) {
 		authCfg     *authn.AuthConfig
 		wantAuth    string
 		registryTok string
+		credentials []types.Credential
 		expectErr   bool
 	}{
-		{"basic_auth_field", &authn.AuthConfig{Auth: "dXNlcjpwYXNz"}, "Basic dXNlcjpwYXNz", "", false},
-		{"basic_user_pass", &authn.AuthConfig{Username: "user", Password: "pass"}, "Basic dXNlcjpwYXNz", "", false},
-		{"bearer_auth_config", &authn.AuthConfig{RegistryToken: "tok123"}, "Bearer tok123", "", false},
-		{"bearer_option_token", nil, "Bearer tok456", "tok456", false},
-		{"auth_precedence", &authn.AuthConfig{Auth: "dXNlcjpwYXNz"}, "Basic dXNlcjpwYXNz", "tok456", false},
-		{"identity_token_no_header", &authn.AuthConfig{IdentityToken: "tok999"}, "Bearer tok999", "", true},
-		{"anonymous", nil, "", "", false},
+		{"basic_auth_field", &authn.AuthConfig{Auth: "dXNlcjpwYXNz"}, "Basic dXNlcjpwYXNz", "", nil, false},
+		{"basic_user_pass", &authn.AuthConfig{Username: "user", Password: "pass"}, "Basic dXNlcjpwYXNz", "", nil, false},
+		{"bearer_auth_config", &authn.AuthConfig{RegistryToken: "tok123"}, "Bearer tok123", "", nil, false},
+		{"bearer_option_token", nil, "Bearer tok456", "tok456", nil, false},
+		{"auth_precedence_docker_over_option", &authn.AuthConfig{Auth: "dXNlcjpwYXNz"}, "Basic dXNlcjpwYXNz", "tok456", nil, false},
+		{"identity_token_no_header", &authn.AuthConfig{IdentityToken: "tok999"}, "Bearer tok999", "", nil, true},
+		{"anonymous", nil, "", "", nil, false},
+		{"credentials_basic", nil, "Basic dXNlcjpwYXNz", "", []types.Credential{{Username: "user", Password: "pass"}}, false},
+		{"credentials_over_option_token", nil, "Basic dXNlcjpwYXNz", "tok-ignored", []types.Credential{{Username: "user", Password: "pass"}}, false},
+		{"docker_over_credentials", &authn.AuthConfig{RegistryToken: "tok123"}, "Bearer tok123", "", []types.Credential{{Username: "user", Password: "pass"}}, false},
+		{"credentials_multiple_last_wins", nil, "Basic dXNlcjI6cGFzczI=", "", []types.Credential{
+			{Username: "user1", Password: "pass1"},
+			{Username: "user2", Password: "pass2"},
+		}, false},
 	}
 
 	for _, tt := range tests {
@@ -132,9 +139,8 @@ func TestNewFromRemote_AuthVariants(t *testing.T) {
 
 			opts := types.ImageOptions{}
 			opts.RegistryOptions.Insecure = true
-			if tt.registryTok != "" {
-				opts.RegistryOptions.RegistryToken = tt.registryTok
-			}
+			opts.RegistryOptions.RegistryToken = tt.registryTok
+			opts.RegistryOptions.Credentials = tt.credentials
 
 			ctx := context.Background()
 			log := logrus.New()
