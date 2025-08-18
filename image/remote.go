@@ -47,6 +47,8 @@ func NewFromRemote(
 	return img, nil
 }
 
+// Option types.ImageOptions is left for compatibility, could be removed in the future.
+// Main auth should be passed via dockerAuth.
 func tryRemote(
 	ctx context.Context,
 	log logrus.FieldLogger,
@@ -71,6 +73,14 @@ func tryRemote(
 	if dockerAuth != nil {
 		log.Info("using docker config authentication to pull an image")
 		remoteOpts = append(remoteOpts, remote.WithAuth(authn.FromConfig(*dockerAuth)))
+	} else if len(option.RegistryOptions.Credentials) > 0 {
+		log.Info("using basic authentication to pull an image")
+		for _, cred := range option.RegistryOptions.Credentials {
+			remoteOpts = append(remoteOpts, remote.WithAuth(&authn.Basic{
+				Username: cred.Username,
+				Password: cred.Password,
+			}))
+		}
 	} else {
 		log.Info("no docker auth provided; trying cloud-provider/bearer/anonymous")
 		domain := ref.Context().RegistryStr()
