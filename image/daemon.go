@@ -3,12 +3,13 @@ package image
 import (
 	"context"
 
+	"github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/castai/image-analyzer/image/daemon"
 	"github.com/google/go-containerregistry/pkg/name"
 )
 
-func NewFromContainerdDaemon(ctx context.Context, imageName string) (ImageWithIndex, func(), error) {
-	img, cleanup, err := daemon.ContainerdImage(ctx, imageName)
+func NewFromContainerdDaemon(ctx context.Context, imageName string, opts types.ImageOptions) (ImageWithIndex, func(), error) {
+	img, cleanup, err := daemon.ContainerdImage(ctx, imageName, opts)
 	if err != nil {
 		return nil, nil, err
 	}

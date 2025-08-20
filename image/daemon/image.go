@@ -15,11 +15,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
 	dimage "github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/client"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
+	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
+	"github.com/samber/lo"
 )
 
 type Image interface {
@@ -33,7 +34,7 @@ var mu sync.Mutex
 
 type opener func() (v1.Image, error)
 
-type imageSave func(context.Context, []string) (io.ReadCloser, error)
+type imageSave func(context.Context, []string, ...client.ImageSaveOption) (io.ReadCloser, error)
 
 func imageOpener(ctx context.Context, ref string, f *os.File, imageSave imageSave) opener {
 	return func() (v1.Image, error) {
@@ -65,7 +66,7 @@ func imageOpener(ctx context.Context, ref string, f *os.File, imageSave imageSav
 type image struct {
 	v1.Image
 	opener  opener
-	inspect types.ImageInspect
+	inspect dimage.InspectResponse
 	history []v1.History
 }
 
@@ -89,8 +90,8 @@ func (img *image) populateImage() (err error) {
 	return nil
 }
 
-func (img *image) ConfigName() (v1.Hash, error) {
-	return v1.NewHash(img.inspect.ID)
+func (img *image) Index() *v1.IndexManifest {
+	return nil
 }
 
 func (img *image) Manifest() (*v1.Manifest, error) {
@@ -100,17 +101,24 @@ func (img *image) Manifest() (*v1.Manifest, error) {
 	return img.Image.Manifest()
 }
 
-func (img *image) Index() *v1.IndexManifest {
-	return nil
+func (img *image) ConfigName() (v1.Hash, error) {
+	return v1.NewHash(img.inspect.ID)
 }
 
 func (img *image) ConfigFile() (*v1.ConfigFile, error) {
 	if len(img.inspect.RootFS.Layers) == 0 {
 		// Podman doesn't return RootFS...
-		if err := img.populateImage(); err != nil {
-			return nil, fmt.Errorf("unable to populate: %w", err)
-		}
-		return img.Image.ConfigFile()
+		return img.configFile()
+	}
+
+	nonEmptyLayerCount := lo.CountBy(img.history, func(history v1.History) bool {
+		return !history.EmptyLayer
+	})
+
+	if len(img.inspect.RootFS.Layers) != nonEmptyLayerCount {
+		// In cases where empty layers are not correctly determined from the history API.
+		// There are some edge cases where we cannot guess empty layers well.
+		return img.configFile()
 	}
 
 	diffIDs, err := img.diffIDs()
@@ -118,18 +126,27 @@ func (img *image) ConfigFile() (*v1.ConfigFile, error) {
 		return nil, fmt.Errorf("unable to get diff IDs: %w", err)
 	}
 
-	created, err := time.Parse(time.RFC3339Nano, img.inspect.Created)
-	if err != nil {
-		return nil, fmt.Errorf("failed parsing created %s: %w", img.inspect.Created, err)
+	var created v1.Time
+	// `Created` field can be empty. Skip parsing to avoid error.
+	// cf. https://github.com/moby/moby/blob/8e96db1c328d0467b015768e42a62c0f834970bb/api/types/types.go#L76-L77
+	if img.inspect.Created != "" {
+		var t time.Time
+		t, err = time.Parse(time.RFC3339Nano, img.inspect.Created)
+		if err != nil {
+			return nil, fmt.Errorf("failed parsing created %s: %w", img.inspect.Created, err)
+		}
+		created = v1.Time{
+			Time: t,
+		}
 	}
 
 	return &v1.ConfigFile{
 		Architecture:  img.inspect.Architecture,
 		Author:        img.inspect.Author,
 		Container:     img.inspect.Container,
-		Created:       v1.Time{Time: created},
+		Created:       created,
 		DockerVersion: img.inspect.DockerVersion,
-		Config:        img.imageConfig(img.inspect.Config),
+		Config:        img.imageConfig(lo.FromPtr(img.inspect.Config)),
 		History:       img.history,
 		OS:            img.inspect.Os,
 		RootFS: v1.RootFS{
@@ -137,6 +154,15 @@ func (img *image) ConfigFile() (*v1.ConfigFile, error) {
 			DiffIDs: diffIDs,
 		},
 	}, nil
+}
+
+func (img *image) configFile() (*v1.ConfigFile, error) {
+	// Need to fall back into expensive operations like "docker save"
+	// because the config file cannot be generated properly from container engine API for some reason.
+	if err := img.populateImage(); err != nil {
+		return nil, fmt.Errorf("unable to populate: %w", err)
+	}
+	return img.Image.ConfigFile()
 }
 
 func (img *image) LayerByDiffID(h v1.Hash) (v1.Layer, error) {
@@ -173,34 +199,33 @@ func (img *image) diffIDs() ([]v1.Hash, error) {
 	return diffIDs, nil
 }
 
-func (img *image) imageConfig(config *container.Config) v1.Config {
-	if config == nil {
-		return v1.Config{}
+func (img *image) imageConfig(config dockerspec.DockerOCIImageConfig) v1.Config {
+	c := v1.Config{
+		// OCI-compliant fields
+		User:        config.User,
+		Cmd:         config.Cmd,
+		Entrypoint:  config.Entrypoint,
+		Env:         config.Env,
+		Labels:      config.Labels,
+		WorkingDir:  config.WorkingDir,
+		StopSignal:  config.StopSignal,
+		ArgsEscaped: config.ArgsEscaped,
+		OnBuild:     config.OnBuild,
+		Shell:       config.Shell,
 	}
 
-	c := v1.Config{
-		AttachStderr:    config.AttachStderr,
-		AttachStdin:     config.AttachStdin,
-		AttachStdout:    config.AttachStdout,
-		Cmd:             config.Cmd,
-		Domainname:      config.Domainname,
-		Entrypoint:      config.Entrypoint,
-		Env:             config.Env,
-		Hostname:        config.Hostname,
-		Image:           config.Image,
-		Labels:          config.Labels,
-		OnBuild:         config.OnBuild,
-		OpenStdin:       config.OpenStdin,
-		StdinOnce:       config.StdinOnce,
-		Tty:             config.Tty,
-		User:            config.User,
-		Volumes:         config.Volumes,
-		WorkingDir:      config.WorkingDir,
-		ArgsEscaped:     config.ArgsEscaped,
-		NetworkDisabled: config.NetworkDisabled,
-		MacAddress:      config.MacAddress,
-		StopSignal:      config.StopSignal,
-		Shell:           config.Shell,
+	if len(config.ExposedPorts) > 0 {
+		c.ExposedPorts = make(map[string]struct{}) //nolint: gocritic
+		for port := range config.ExposedPorts {
+			c.ExposedPorts[port] = struct{}{}
+		}
+	}
+
+	if len(config.Volumes) > 0 {
+		c.Volumes = make(map[string]struct{}) //nolint: gocritic
+		for volume := range config.Volumes {
+			c.Volumes[volume] = struct{}{}
+		}
 	}
 
 	if config.Healthcheck != nil {
@@ -210,13 +235,6 @@ func (img *image) imageConfig(config *container.Config) v1.Config {
 			Timeout:     config.Healthcheck.Timeout,
 			StartPeriod: config.Healthcheck.StartPeriod,
 			Retries:     config.Healthcheck.Retries,
-		}
-	}
-
-	if len(config.ExposedPorts) > 0 {
-		c.ExposedPorts = map[string]struct{}{}
-		for port := range c.ExposedPorts {
-			c.ExposedPorts[port] = struct{}{}
 		}
 	}
 
@@ -241,11 +259,13 @@ func configHistory(dhistory []dimage.HistoryResponseItem) []v1.History {
 	return history
 }
 
+// emptyLayer tries to determine if the layer is empty from the history API, but may return a wrong result.
+// The non-empty layers will be compared to diffIDs later so that results can be validated.
 func emptyLayer(history dimage.HistoryResponseItem) bool {
 	if history.Size != 0 {
 		return false
 	}
-	createdBy := strings.TrimSpace(strings.TrimLeft(history.CreatedBy, "/bin/sh -c #(nop)")) //nolint:staticcheck
+	createdBy := strings.TrimSpace(strings.TrimLeft(history.CreatedBy, "/bin/sh -c #(nop)"))
 	// This logic is taken from https://github.com/moby/buildkit/blob/2942d13ff489a2a49082c99e6104517e357e53ad/frontend/dockerfile/dockerfile2llb/convert.go
 	if strings.HasPrefix(createdBy, "ENV") ||
 		strings.HasPrefix(createdBy, "MAINTAINER") ||
@@ -258,12 +278,23 @@ func emptyLayer(history dimage.HistoryResponseItem) bool {
 		strings.HasPrefix(createdBy, "VOLUME") ||
 		strings.HasPrefix(createdBy, "STOPSIGNAL") ||
 		strings.HasPrefix(createdBy, "SHELL") ||
-		strings.HasPrefix(createdBy, "ARG") ||
-		createdBy == "WORKDIR /" { // only when workdir == "/" then layer is empty
+		strings.HasPrefix(createdBy, "ARG") {
 		return true
 	}
-	// commands here: 'ADD', COPY, RUN and WORKDIR != "/"
-	// Also RUN command may not include 'RUN' prefix
-	// e.g. '/bin/sh -c mkdir test '
+	// buildkit layers with "WORKDIR /" command are empty,
+	if strings.HasPrefix(history.Comment, "buildkit.dockerfile") {
+		if createdBy == "WORKDIR /" {
+			return true
+		}
+	} else if strings.HasPrefix(createdBy, "WORKDIR") { // layers build with docker and podman, WORKDIR command is always empty layer.
+		return true
+	}
+	// The following instructions could reach here:
+	//     - "ADD"
+	//     - "COPY"
+	//     - "RUN"
+	//         - "RUN" may not include even 'RUN' prefix
+	//            e.g. '/bin/sh -c mkdir test '
+	//     - "WORKDIR", which doesn't meet the above conditions
 	return false
 }
