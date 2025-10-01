@@ -5,7 +5,7 @@ go 1.24
 toolchain go1.24.2
 
 require (
-	github.com/aquasecurity/trivy v0.61.0
+	github.com/aquasecurity/trivy v0.61.1
 	github.com/containerd/containerd v1.7.27
 	github.com/docker/docker v27.5.1+incompatible
 	github.com/docker/go-connections v0.5.0
@@ -69,7 +69,7 @@ require (
 	github.com/aquasecurity/go-version v0.0.1 // indirect
 	github.com/aquasecurity/iamgo v0.0.10 // indirect
 	github.com/aquasecurity/jfather v0.0.8 // indirect
-	github.com/aquasecurity/trivy-checks v1.8.0 // indirect
+	github.com/aquasecurity/trivy-checks v1.8.1 // indirect
 	github.com/aquasecurity/trivy-db v0.0.0-20250227071930-8bd8a9b89e2d // indirect
 	github.com/aquasecurity/trivy-java-db v0.0.0-20240109071736-184bd7481d48 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect

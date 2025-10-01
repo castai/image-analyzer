@@ -15,6 +15,8 @@ import (
 	"os"
 	"time"
 
+	itypes "github.com/castai/image-analyzer/image/types"
+
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/images/archive"
@@ -53,7 +55,7 @@ func imageWriter(client *containerd.Client, img containerd.Image) imageSave {
 }
 
 // ContainerdImage implements v1.Image
-func ContainerdImage(ctx context.Context, imageName string) (Image, func(), error) {
+func ContainerdImage(ctx context.Context, imageName string) (itypes.ImageWithIndex, func(), error) {
 	cleanup := func() {}
 
 	addr := os.Getenv("CONTAINERD_ADDRESS")

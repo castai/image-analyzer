@@ -6,13 +6,6 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 )
 
-type Image interface {
-	v1.Image
-	RepoTags() []string
-	RepoDigests() []string
-	Index() *v1.IndexManifest
-}
-
 // NewImageHash returns image hash from string in format:
 // registry.com/repo/image:v0.1.0@sha256:c845d5f019125f896cf552912ab2dc35a6996646975d65878626ac73b89c7b11
 func NewImageHash(fqnImageID string) (v1.Hash, error) {

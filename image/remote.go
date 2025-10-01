@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 
+	itypes "github.com/castai/image-analyzer/image/types"
+
 	"github.com/aquasecurity/trivy/pkg/fanal/image/registry"
 	"github.com/aquasecurity/trivy/pkg/fanal/types"
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -29,7 +31,7 @@ func NewFromRemote(
 	imageName string,
 	option types.ImageOptions,
 	dockerAuth *authn.AuthConfig, // optional: raw docker auth block
-) (ImageWithIndex, error) {
+) (itypes.ImageWithIndex, error) {
 	var nameOpts []name.Option
 	if option.RegistryOptions.Insecure {
 		nameOpts = append(nameOpts, name.Insecure)
@@ -56,7 +58,7 @@ func tryRemote(
 	ref name.Reference,
 	option types.ImageOptions,
 	dockerAuth *authn.AuthConfig,
-) (ImageWithIndex, error) {
+) (itypes.ImageWithIndex, error) {
 	remoteOpts := []remote.Option{
 		remote.WithContext(ctx),
 	}
@@ -134,11 +136,11 @@ func (img remoteImage) Name() string {
 }
 
 func (img remoteImage) ID() (string, error) {
-	return ID(img)
-}
-
-func (img remoteImage) LayerIDs() ([]string, error) {
-	return LayerIDs(img)
+	h, err := img.ConfigName()
+	if err != nil {
+		return "", err
+	}
+	return h.String(), nil
 }
 
 func (img remoteImage) RepoTags() []string {
@@ -154,8 +156,20 @@ func (img remoteImage) RepoDigests() []string {
 	return []string{repoDigest}
 }
 
-func (img remoteImage) Index() *v1.IndexManifest {
-	return nil
+func (img remoteImage) IndexDigest() (v1.Hash, error) {
+	index, err := img.descriptor.ImageIndex()
+	if err != nil {
+		return v1.Hash{}, itypes.ErrImageIndexNotFound
+	}
+	return index.Digest()
+}
+
+func (img remoteImage) IndexManifest() (*v1.IndexManifest, error) {
+	index, err := img.descriptor.ImageIndex()
+	if err != nil {
+		return nil, itypes.ErrImageIndexNotFound
+	}
+	return index.IndexManifest()
 }
 
 type implicitReference struct {
