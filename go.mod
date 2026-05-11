@@ -1,6 +1,6 @@
 module github.com/castai/image-analyzer
 
-go 1.25.8
+go 1.26.2
 
 require (
 	github.com/aquasecurity/trivy v0.70.0
