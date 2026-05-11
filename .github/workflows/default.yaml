@@ -12,6 +12,4 @@ jobs:
         with:
           go-version-file: "go.mod"
       - name: Test
-        env:
-          GOEXPERIMENT: jsonv2 # required by trivy v0.69.3+ (encoding/json/v2)
         run: go test ./...

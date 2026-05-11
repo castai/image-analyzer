@@ -26,7 +26,8 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
+	"sync"
+
 	"golang.org/x/sync/semaphore"
 )
 
@@ -299,7 +300,7 @@ func (a Artifact) inspectLayer(ctx context.Context, digest, diffID string, disab
 		return types.BlobInfo{}, fmt.Errorf("unable to get uncompressed layer %s: %w", diffID, err)
 	}
 
-	var eg errgroup.Group
+	var wg sync.WaitGroup
 	opts := analyzer.AnalysisOptions{Offline: a.artifactOption.Offline}
 	result := analyzer.NewAnalysisResult()
 	limit := semaphore.NewWeighted(int64(a.artifactOption.Parallel))
@@ -312,7 +313,7 @@ func (a Artifact) inspectLayer(ctx context.Context, digest, diffID string, disab
 	defer composite.Cleanup()
 
 	opaqueDirs, whiteoutFiles, err := a.walker.Walk(layerReader, func(filePath string, info os.FileInfo, opener analyzer.Opener) error {
-		if err = a.analyzer.AnalyzeFile(ctx, &eg, limit, result, "", filePath, info, opener, disabled, opts); err != nil {
+		if err = a.analyzer.AnalyzeFile(ctx, &wg, limit, result, "", filePath, info, opener, disabled, opts); err != nil {
 			return fmt.Errorf("failed to analyze %s: %w", filePath, err)
 		}
 
@@ -337,9 +338,7 @@ func (a Artifact) inspectLayer(ctx context.Context, digest, diffID string, disab
 		return types.BlobInfo{}, fmt.Errorf("walk error: %w", err)
 	}
 
-	if err := eg.Wait(); err != nil {
-		return types.BlobInfo{}, fmt.Errorf("analysis error: %w", err)
-	}
+	wg.Wait()
 
 	// Post-analysis
 	if err = a.analyzer.PostAnalyze(ctx, composite, result, opts); err != nil {
