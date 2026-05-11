@@ -9,6 +9,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 
 	itypes "github.com/castai/image-analyzer/image/types"
@@ -64,7 +65,9 @@ func DockerImage(ref name.Reference) (itypes.ImageWithIndex, func(), error) {
 	}
 
 	return &image{
-		opener:  imageOpener(context.Background(), imageID, f, c.ImageSave),
+		opener:  imageOpener(context.Background(), imageID, f, func(ctx context.Context, ids []string) (io.ReadCloser, error) {
+			return c.ImageSave(ctx, ids)
+		}),
 		inspect: inspect,
 		history: configHistory(history),
 	}, cleanup, nil

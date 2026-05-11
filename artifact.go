@@ -16,7 +16,6 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/aquasecurity/trivy/pkg/fanal/analyzer"
 	_ "github.com/aquasecurity/trivy/pkg/fanal/analyzer/all"
@@ -27,6 +26,8 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"sync"
+
 	"golang.org/x/sync/semaphore"
 )
 
