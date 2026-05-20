@@ -25,8 +25,7 @@ import (
 	"github.com/containerd/containerd/reference/docker"
 	refdocker "github.com/containerd/containerd/reference/docker"
 	api "github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/go-connections/nat"
+	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -39,7 +38,7 @@ const (
 )
 
 func imageWriter(client *containerd.Client, img containerd.Image) imageSave {
-	return func(ctx context.Context, ref []string) (io.ReadCloser, error) {
+	return func(ctx context.Context, ref []string, opts ...imageSaveOption) (io.ReadCloser, error) {
 		if len(ref) < 1 {
 			return nil, errors.New("no image reference")
 		}
@@ -165,11 +164,6 @@ func inspect(ctx context.Context, img containerd.Image, ref docker.Named) (api.I
 		history = append(history, hist)
 	}
 
-	portSet := make(nat.PortSet)
-	for k := range imgConfig.Config.ExposedPorts {
-		portSet[nat.Port(k)] = struct{}{}
-	}
-
 	return api.ImageInspect{
 		ID:          imgConfigDesc.Digest.String(),
 		RepoTags:    []string{fmt.Sprintf("%s:%s", repository, tag)},
@@ -177,15 +171,20 @@ func inspect(ctx context.Context, img containerd.Image, ref docker.Named) (api.I
 		Comment:     lastHistory.Comment,
 		Created:     lastCreated,
 		Author:      lastHistory.Author,
-		Config: &container.Config{
-			User:         imgConfig.Config.User,
-			ExposedPorts: portSet,
-			Env:          imgConfig.Config.Env,
-			Cmd:          imgConfig.Config.Cmd,
-			Volumes:      imgConfig.Config.Volumes,
-			WorkingDir:   imgConfig.Config.WorkingDir,
-			Entrypoint:   imgConfig.Config.Entrypoint,
-			Labels:       imgConfig.Config.Labels,
+		Config: &dockerspec.DockerOCIImageConfig{
+			ImageConfig: ocispec.ImageConfig{
+				User:         imgConfig.Config.User,
+				ExposedPorts: imgConfig.Config.ExposedPorts,
+				Env:          imgConfig.Config.Env,
+				Entrypoint:   imgConfig.Config.Entrypoint,
+				Cmd:          imgConfig.Config.Cmd,
+				Volumes:      imgConfig.Config.Volumes,
+				WorkingDir:   imgConfig.Config.WorkingDir,
+				Labels:       imgConfig.Config.Labels,
+				StopSignal:   imgConfig.Config.StopSignal,
+				ArgsEscaped:  imgConfig.Config.ArgsEscaped,
+			},
+			// Note: OnBuild and Shell are Docker-specific extensions not available in standard OCI images
 		},
 		Architecture: imgConfig.Architecture,
 		Os:           imgConfig.OS,

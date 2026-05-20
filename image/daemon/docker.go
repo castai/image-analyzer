@@ -9,6 +9,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 
 	itypes "github.com/castai/image-analyzer/image/types"
@@ -63,8 +64,15 @@ func DockerImage(ref name.Reference) (itypes.ImageWithIndex, func(), error) {
 		_ = os.Remove(f.Name())
 	}
 
+	// Wrap ImageSave to adapt the new signature with ImageSaveOption to our internal type
+	imageSaveFunc := func(ctx context.Context, ids []string, opts ...imageSaveOption) (io.ReadCloser, error) {
+		// Convert our internal options to client.ImageSaveOption if needed
+		// For now, we don't pass any options as we don't use them
+		return c.ImageSave(ctx, ids)
+	}
+
 	return &image{
-		opener:  imageOpener(context.Background(), imageID, f, c.ImageSave),
+		opener:  imageOpener(context.Background(), imageID, f, imageSaveFunc),
 		inspect: inspect,
 		history: configHistory(history),
 	}, cleanup, nil
