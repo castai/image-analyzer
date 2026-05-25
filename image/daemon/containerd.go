@@ -38,7 +38,7 @@ const (
 )
 
 func imageWriter(client *containerd.Client, img containerd.Image) imageSave {
-	return func(ctx context.Context, ref []string, opts ...imageSaveOption) (io.ReadCloser, error) {
+	return func(ctx context.Context, ref []string) (io.ReadCloser, error) {
 		if len(ref) < 1 {
 			return nil, errors.New("no image reference")
 		}
