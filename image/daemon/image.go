@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
 	dimage "github.com/docker/docker/api/types/image"
+	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 )
@@ -180,34 +180,35 @@ func (img *image) diffIDs() ([]v1.Hash, error) {
 	return diffIDs, nil
 }
 
-func (img *image) imageConfig(config *container.Config) v1.Config {
+func (img *image) imageConfig(config *dockerspec.DockerOCIImageConfig) v1.Config {
 	if config == nil {
 		return v1.Config{}
 	}
 
 	c := v1.Config{
-		AttachStderr:    config.AttachStderr,
-		AttachStdin:     config.AttachStdin,
-		AttachStdout:    config.AttachStdout,
-		Cmd:             config.Cmd,
-		Domainname:      config.Domainname,
-		Entrypoint:      config.Entrypoint,
-		Env:             config.Env,
-		Hostname:        config.Hostname,
-		Image:           config.Image,
-		Labels:          config.Labels,
-		OnBuild:         config.OnBuild,
-		OpenStdin:       config.OpenStdin,
-		StdinOnce:       config.StdinOnce,
-		Tty:             config.Tty,
-		User:            config.User,
-		Volumes:         config.Volumes,
-		WorkingDir:      config.WorkingDir,
-		ArgsEscaped:     config.ArgsEscaped,
-		NetworkDisabled: config.NetworkDisabled,
-		MacAddress:      config.MacAddress,
-		StopSignal:      config.StopSignal,
-		Shell:           config.Shell,
+		Cmd:         config.Cmd,
+		Entrypoint:  config.Entrypoint,
+		Env:         config.Env,
+		WorkingDir:  config.WorkingDir,
+		Labels:      config.Labels,
+		User:        config.User,
+		Volumes:     config.Volumes,
+		StopSignal:  config.StopSignal,
+		ArgsEscaped: config.ArgsEscaped,
+		Shell:       config.Shell,
+	}
+
+	// Convert ExposedPorts from map[string]struct{} to the expected format
+	if len(config.ExposedPorts) > 0 {
+		c.ExposedPorts = make(map[string]struct{}, len(config.ExposedPorts))
+		for port := range config.ExposedPorts {
+			c.ExposedPorts[port] = struct{}{}
+		}
+	}
+
+	// Handle Docker-specific extensions
+	if config.OnBuild != nil {
+		c.OnBuild = config.OnBuild
 	}
 
 	if config.Healthcheck != nil {
@@ -217,13 +218,6 @@ func (img *image) imageConfig(config *container.Config) v1.Config {
 			Timeout:     config.Healthcheck.Timeout,
 			StartPeriod: config.Healthcheck.StartPeriod,
 			Retries:     config.Healthcheck.Retries,
-		}
-	}
-
-	if len(config.ExposedPorts) > 0 {
-		c.ExposedPorts = map[string]struct{}{}
-		for port := range c.ExposedPorts {
-			c.ExposedPorts[port] = struct{}{}
 		}
 	}
 
