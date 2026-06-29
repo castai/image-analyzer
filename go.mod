@@ -7,7 +7,7 @@ toolchain go1.24.2
 require (
 	github.com/aquasecurity/trivy v0.61.1
 	github.com/containerd/containerd v1.7.27
-	github.com/docker/docker v27.5.1+incompatible
+	github.com/docker/docker v28.5.2+incompatible
 	github.com/docker/go-connections v0.5.0
 	github.com/google/go-containerregistry v0.20.3
 	github.com/opencontainers/go-digest v1.0.0
