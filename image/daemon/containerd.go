@@ -17,13 +17,12 @@ import (
 
 	itypes "github.com/castai/image-analyzer/image/types"
 
-	"github.com/containerd/containerd"
-	"github.com/containerd/containerd/content"
-	"github.com/containerd/containerd/images/archive"
-	"github.com/containerd/containerd/namespaces"
-	"github.com/containerd/containerd/platforms"
-	"github.com/containerd/containerd/reference/docker"
-	refdocker "github.com/containerd/containerd/reference/docker"
+	"github.com/containerd/containerd/v2/client"
+	"github.com/containerd/containerd/v2/core/content"
+	"github.com/containerd/containerd/v2/core/images/archive"
+	"github.com/containerd/containerd/v2/pkg/namespaces"
+	"github.com/containerd/platforms"
+	"github.com/distribution/reference"
 	api "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
@@ -38,17 +37,17 @@ const (
 	defaultContainerdNamespace = "k8s.io"
 )
 
-func imageWriter(client *containerd.Client, img containerd.Image) imageSave {
+func imageWriter(c *client.Client, img client.Image) imageSave {
 	return func(ctx context.Context, ref []string) (io.ReadCloser, error) {
 		if len(ref) < 1 {
 			return nil, errors.New("no image reference")
 		}
-		imgOpts := archive.WithImage(client.ImageService(), ref[0])
+		imgOpts := archive.WithImage(c.ImageService(), ref[0])
 		manifestOpts := archive.WithManifest(img.Target())
 		platOpts := archive.WithPlatform(platforms.DefaultStrict())
 		pr, pw := io.Pipe()
 		go func() {
-			pw.CloseWithError(archive.Export(ctx, client.ContentStore(), pw, imgOpts, manifestOpts, platOpts))
+			pw.CloseWithError(archive.Export(ctx, c.ContentStore(), pw, imgOpts, manifestOpts, platOpts))
 		}()
 		return pr, nil
 	}
@@ -69,12 +68,12 @@ func ContainerdImage(ctx context.Context, imageName string) (itypes.ImageWithInd
 	}
 
 	// Parse the image name
-	ref, err := refdocker.ParseDockerRef(imageName)
+	ref, err := reference.ParseDockerRef(imageName)
 	if err != nil {
 		return nil, cleanup, fmt.Errorf("parse error: %w", err)
 	}
 
-	client, err := containerd.New(addr)
+	c, err := client.New(addr)
 	if err != nil {
 		return nil, cleanup, fmt.Errorf("failed to initialize a containerd client: %w", err)
 	}
@@ -82,7 +81,7 @@ func ContainerdImage(ctx context.Context, imageName string) (itypes.ImageWithInd
 	// Need to specify a namespace
 	ctx = namespaces.WithNamespace(ctx, defaultContainerdNamespace)
 
-	img, err := client.GetImage(ctx, ref.String())
+	img, err := c.GetImage(ctx, ref.String())
 	if err != nil {
 		return nil, cleanup, fmt.Errorf("failed to get %s: %w", imageName, err)
 	}
@@ -93,7 +92,7 @@ func ContainerdImage(ctx context.Context, imageName string) (itypes.ImageWithInd
 	}
 
 	cleanup = func() {
-		_ = client.Close()
+		_ = c.Close()
 		_ = f.Close()
 		_ = os.Remove(f.Name())
 	}
@@ -104,7 +103,7 @@ func ContainerdImage(ctx context.Context, imageName string) (itypes.ImageWithInd
 	}
 
 	return &image{
-		opener:  imageOpener(ctx, ref.String(), f, imageWriter(client, img)),
+		opener:  imageOpener(ctx, ref.String(), f, imageWriter(c, img)),
 		inspect: insp,
 		history: history,
 	}, cleanup, nil
@@ -112,7 +111,7 @@ func ContainerdImage(ctx context.Context, imageName string) (itypes.ImageWithInd
 
 // readImageConfig reads the config spec (`application/vnd.oci.image.config.v1+json`) for img.platform from content store.
 // ported from https://github.com/containerd/nerdctl/blob/7dfbaa2122628921febeb097e7a8a86074dc931d/pkg/imgutil/imgutil.go#L377-L393
-func readImageConfig(ctx context.Context, img containerd.Image) (ocispec.Image, ocispec.Descriptor, error) {
+func readImageConfig(ctx context.Context, img client.Image) (ocispec.Image, ocispec.Descriptor, error) {
 	var config ocispec.Image
 
 	configDesc, err := img.Config(ctx) // aware of img.platform
@@ -130,12 +129,12 @@ func readImageConfig(ctx context.Context, img containerd.Image) (ocispec.Image, 
 }
 
 // ported from https://github.com/containerd/nerdctl/blob/d110fea18018f13c3f798fa6565e482f3ff03591/pkg/inspecttypes/dockercompat/dockercompat.go#L279-L321
-func inspect(ctx context.Context, img containerd.Image, ref docker.Named) (api.ImageInspect, []v1.History, error) {
+func inspect(ctx context.Context, img client.Image, ref reference.Named) (api.ImageInspect, []v1.History, error) {
 	var tag string
-	if tagged, ok := ref.(refdocker.Tagged); ok {
+	if tagged, ok := ref.(reference.Tagged); ok {
 		tag = tagged.Tag()
 	}
-	repository := refdocker.FamiliarName(ref)
+	repository := reference.FamiliarName(ref)
 
 	imgConfig, imgConfigDesc, err := readImageConfig(ctx, img)
 	if err != nil {
