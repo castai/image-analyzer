@@ -298,6 +298,9 @@ func (a Artifact) inspectLayer(ctx context.Context, digest, diffID string, disab
 	if err != nil {
 		return types.BlobInfo{}, fmt.Errorf("unable to get uncompressed layer %s: %w", diffID, err)
 	}
+	// Since go-containerregistry v0.21.6, a remote layer reader holds a registry pull slot until it is closed.
+	// The tar walker stops at the end-of-archive marker, so the stream is usually not read to EOF.
+	defer layerReader.Close()
 
 	var wg sync.WaitGroup
 	opts := analyzer.AnalysisOptions{Offline: a.artifactOption.Offline}
@@ -372,7 +375,7 @@ func (a Artifact) inspectLayer(ctx context.Context, digest, diffID string, disab
 	return blobInfo, nil
 }
 
-func (a Artifact) openUncompressedLayer(diffID string) (io.Reader, error) {
+func (a Artifact) openUncompressedLayer(diffID string) (io.ReadCloser, error) {
 	// diffID is a hash of the uncompressed layer
 	h, err := v1.NewHash(diffID)
 	if err != nil {
